@@ -1,0 +1,4 @@
+-keep class com.autocall.mailrecorder.data.local.entity.** { *; }
+-keep class com.autocall.mailrecorder.domain.model.** { *; }
+-dontwarn java.awt.**
+-dontwarn javax.activation.**

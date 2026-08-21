@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AutoCall Mail Recorder</string>
+    <string name="notification_channel_name">Call Recording Service</string>
+    <string name="notification_channel_desc">Active recording and background delivery status</string>
+    <string name="recording_active">Recording Active Call</string>
+    <string name="recording_saving">Finalizing and Queuing Recording…</string>
+</resources>
