@@ -136,7 +136,12 @@ class CallRecordingService : Service() {
 
         serviceScope.launch {
             try {
-                val engine = RecordingEngineFactory.createEngine(this@CallRecordingService)
+                val settings = securePreferencesManager.loadSettings()
+                val engine = RecordingEngineFactory.createEngine(
+                    this@CallRecordingService,
+                    settings.audioSource,
+                    settings.audioGainMultiplier
+                )
                 val targetFile = RecordingEngineFactory.generateRecordingFile(
                     this@CallRecordingService,
                     direction,

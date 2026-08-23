@@ -39,6 +39,8 @@ fun SettingsScreen(
     var wifiOnly by remember { mutableStateOf(settings.wifiOnly) }
     var retentionDays by remember { mutableStateOf(settings.retentionDays.toString()) }
     var autoDelete by remember { mutableStateOf(settings.autoDeleteAfterSent) }
+    var audioSource by remember { mutableStateOf(settings.audioSource) }
+    var audioGain by remember { mutableFloatStateOf(settings.audioGainMultiplier) }
     var passwordVisible by remember { mutableStateOf(false) }
 
     var savedNotification by remember { mutableStateOf(false) }
@@ -65,6 +67,84 @@ fun SettingsScreen(
         ) {
             Spacer(modifier = Modifier.height(12.dp))
 
+            // Section: Audio Clarity & Hardware Source
+            Text(
+                text = "Audio Recording & Voice Clarity",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "Fine-tune microphone sensitivity & boost volume for clear voice recording.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Audio Source Selector
+            Text(
+                text = "Capture Source Mode:",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+
+            val sources = listOf(
+                "VOICE_RECOGNITION" to "Voice Recognition (High Gain - Recommended)",
+                "MIC" to "Microphone (Standard Mic + Boost)",
+                "VOICE_COMMUNICATION" to "Voice Communication (VoIP/AEC)",
+                "UNPROCESSED" to "Unprocessed (Raw Hardware Mic)"
+            )
+
+            sources.forEach { (key, label) ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                ) {
+                    RadioButton(
+                        selected = (audioSource == key),
+                        onClick = { audioSource = key }
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(text = label, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Volume Gain Slider
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Software Volume Gain:",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = String.format(java.util.Locale.US, "%.1fx Boost", audioGain),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Slider(
+                value = audioGain,
+                onValueChange = { audioGain = it },
+                valueRange = 1.0f..5.0f,
+                steps = 7,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+            HorizontalDivider()
+            Spacer(modifier = Modifier.height(16.dp))
+
             // Section: Delivery Destination
             Text(
                 text = "Email Delivery Settings",
@@ -72,6 +152,8 @@ fun SettingsScreen(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.fillMaxWidth()
             )
+            Spacer(modifier = Modifier.height(8.dp))
+
             // Gmail Preset Button
             FilledTonalButton(
                 onClick = {
@@ -221,6 +303,8 @@ fun SettingsScreen(
                         wifiOnly = wifiOnly,
                         retentionDays = retentionDays.toIntOrNull() ?: 30,
                         autoDeleteAfterSent = autoDelete,
+                        audioSource = audioSource,
+                        audioGainMultiplier = audioGain,
                         updatedAt = System.currentTimeMillis()
                     )
                     settingsRepository.updateSettings(updated)

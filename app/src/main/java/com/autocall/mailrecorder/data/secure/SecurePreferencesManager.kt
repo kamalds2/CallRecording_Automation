@@ -43,7 +43,9 @@ class SecurePreferencesManager(context: Context) {
             backendUrl = prefs.getString(KEY_BACKEND_URL, "") ?: "",
             retentionDays = prefs.getInt(KEY_RETENTION_DAYS, 30),
             wifiOnly = prefs.getBoolean(KEY_WIFI_ONLY, false),
-            autoDeleteAfterSent = prefs.getBoolean(KEY_AUTO_DELETE, false)
+            autoDeleteAfterSent = prefs.getBoolean(KEY_AUTO_DELETE, false),
+            audioSource = prefs.getString(KEY_AUDIO_SOURCE, "VOICE_RECOGNITION") ?: "VOICE_RECOGNITION",
+            audioGainMultiplier = prefs.getFloat(KEY_AUDIO_GAIN, 2.5f)
         )
     }
 
@@ -60,6 +62,8 @@ class SecurePreferencesManager(context: Context) {
             .putInt(KEY_RETENTION_DAYS, settings.retentionDays)
             .putBoolean(KEY_WIFI_ONLY, settings.wifiOnly)
             .putBoolean(KEY_AUTO_DELETE, settings.autoDeleteAfterSent)
+            .putString(KEY_AUDIO_SOURCE, settings.audioSource)
+            .putFloat(KEY_AUDIO_GAIN, settings.audioGainMultiplier)
             .apply()
 
         _settingsFlow.value = settings
@@ -102,6 +106,8 @@ class SecurePreferencesManager(context: Context) {
         private const val KEY_RETENTION_DAYS = "retention_days"
         private const val KEY_WIFI_ONLY = "wifi_only"
         private const val KEY_AUTO_DELETE = "auto_delete"
+        private const val KEY_AUDIO_SOURCE = "audio_source"
+        private const val KEY_AUDIO_GAIN = "audio_gain"
         private const val KEY_CONSENT_ACCEPTED = "consent_accepted"
         private const val KEY_FIRST_LAUNCH_DONE = "first_launch_done"
     }

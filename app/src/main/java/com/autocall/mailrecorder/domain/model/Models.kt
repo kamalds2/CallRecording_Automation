@@ -32,7 +32,7 @@ data class Recording(
     val endedAt: Long = 0,
     val durationSeconds: Long = 0,
     val direction: CallDirection = CallDirection.UNKNOWN,
-    val fileFormat: String = "m4a",
+    val fileFormat: String = "wav",
     val fileSize: Long = 0,
     val captureStatus: CaptureStatus = CaptureStatus.IDLE,
     val deliveryStatus: DeliveryStatus = DeliveryStatus.PENDING,
@@ -63,6 +63,8 @@ data class AppSettings(
     val retentionDays: Int = 30,
     val wifiOnly: Boolean = false,
     val autoDeleteAfterSent: Boolean = false,
+    val audioSource: String = "VOICE_RECOGNITION", // "VOICE_RECOGNITION", "MIC", "VOICE_COMMUNICATION", "UNPROCESSED"
+    val audioGainMultiplier: Float = 2.5f,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )
