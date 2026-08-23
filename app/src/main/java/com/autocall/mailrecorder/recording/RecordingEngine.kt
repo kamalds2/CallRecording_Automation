@@ -36,21 +36,32 @@ class MediaRecorderEngine(
 
     @Suppress("DEPRECATION")
     override fun startRecording(outputFile: File): Result<Unit> {
+        currentOutputFile = outputFile
+        
+        // Attempt primary source (VOICE_COMMUNICATION or specified source)
+        val primaryResult = tryStartMediaRecorder(outputFile, audioSource)
+        if (primaryResult.isSuccess) {
+            return primaryResult
+        }
+
+        // If primary source failed (e.g. VOICE_COMMUNICATION blocked during phone call), fallback to MIC
+        Log.w("MediaRecorderEngine", "Primary audio source ($audioSource) failed, falling back to MIC source")
+        return tryStartMediaRecorder(outputFile, MediaRecorder.AudioSource.MIC)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun tryStartMediaRecorder(outputFile: File, source: Int): Result<Unit> {
         return try {
-            currentOutputFile = outputFile
+            mediaRecorder?.release()
+            mediaRecorder = null
+
             val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 MediaRecorder(context)
             } else {
                 MediaRecorder()
             }
 
-            try {
-                recorder.setAudioSource(audioSource)
-            } catch (e: Exception) {
-                // fallback to MIC if voice source fails
-                recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
-            }
-
+            recorder.setAudioSource(source)
             recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
             recorder.setAudioEncodingBitRate(64000)
@@ -63,7 +74,7 @@ class MediaRecorderEngine(
             recording = true
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("MediaRecorderEngine", "Failed to start MediaRecorder", e)
+            Log.e("MediaRecorderEngine", "Failed to start MediaRecorder with source: $source", e)
             mediaRecorder?.release()
             mediaRecorder = null
             recording = false

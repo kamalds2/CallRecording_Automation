@@ -7,6 +7,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -43,7 +44,20 @@ fun DashboardScreen(
     val latestRecording by recordingRepository.getLatestRecordingFlow().collectAsState(initial = null)
     val pendingQueueCount by deliveryRepository.getPendingQueueCountFlow().collectAsState(initial = 0)
 
-    val hasPermissions = remember(context) { PermissionManager.hasAllRequiredPermissions(context) }
+    var hasPermissions by remember { mutableStateOf(PermissionManager.hasAllRequiredPermissions(context)) }
+
+    val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        hasPermissions = PermissionManager.hasAllRequiredPermissions(context)
+    }
+
+    LaunchedEffect(Unit) {
+        hasPermissions = PermissionManager.hasAllRequiredPermissions(context)
+        if (!hasPermissions) {
+            permissionLauncher.launch(PermissionManager.getRequiredPermissions().toTypedArray())
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -164,12 +178,61 @@ fun DashboardScreen(
                         checked = settings.automationEnabled && hasPermissions,
                         onCheckedChange = { enabled ->
                             if (!hasPermissions) {
-                                navController.navigate(Screen.Permissions.route)
+                                permissionLauncher.launch(PermissionManager.getRequiredPermissions().toTypedArray())
                             } else {
                                 settingsRepository.updateSettings(settings.copy(automationEnabled = enabled))
+                                if (enabled) {
+                                    com.autocall.mailrecorder.service.CallRecordingService.startMonitoring(context)
+                                } else {
+                                    com.autocall.mailrecorder.service.CallRecordingService.stopMonitoring(context)
+                                }
                             }
                         }
                     )
+                }
+            }
+
+            // Battery Optimization Banner (Crucial for Xiaomi / HyperOS / Samsung)
+            if (!PermissionManager.isIgnoringBatteryOptimizations(context)) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Card(
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = AccentOrange.copy(alpha = 0.15f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.BatteryAlert, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Background Activity Restricted", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Your device battery saver may block call recording in the background. Tap below to allow unrestricted background execution.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        FilledTonalButton(
+                            onClick = {
+                                try {
+                                    val intent = android.content.Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                        data = android.net.Uri.parse("package:${context.packageName}")
+                                    }
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    val intent = android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                        data = android.net.Uri.fromParts("package", context.packageName, null)
+                                    }
+                                    context.startActivity(intent)
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().height(36.dp),
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Text("Allow Background Activity")
+                        }
+                    }
                 }
             }
 
@@ -287,7 +350,7 @@ fun DashboardScreen(
                 modifier = Modifier.fillMaxWidth().height(48.dp),
                 shape = RoundedCornerShape(8.dp)
             ) {
-                Icon(Icons.Default.List, contentDescription = null)
+                Icon(Icons.AutoMirrored.Filled.List, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("View Complete Recording History")
             }

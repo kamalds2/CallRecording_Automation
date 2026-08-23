@@ -13,10 +13,25 @@ import com.autocall.mailrecorder.ui.theme.AutoCallMailRecorderTheme
 
 class MainActivity : ComponentActivity() {
 
+    private val permissionLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ -> }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Automatically prompt system permissions if any are missing
+        if (!com.autocall.mailrecorder.permissions.PermissionManager.hasAllRequiredPermissions(this)) {
+            permissionLauncher.launch(
+                com.autocall.mailrecorder.permissions.PermissionManager.getRequiredPermissions().toTypedArray()
+            )
+        }
+
         val app = application as MainApplication
+        val settings = app.settingsRepository.getSettings()
+        if (settings.automationEnabled && com.autocall.mailrecorder.permissions.PermissionManager.hasAllRequiredPermissions(this)) {
+            com.autocall.mailrecorder.service.CallRecordingService.startMonitoring(this)
+        }
 
         setContent {
             AutoCallMailRecorderTheme {

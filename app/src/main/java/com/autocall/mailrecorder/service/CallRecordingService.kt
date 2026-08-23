@@ -56,33 +56,75 @@ class CallRecordingService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val action = intent?.action
+        val action = intent?.action ?: ACTION_START_MONITORING
 
         when (action) {
+            ACTION_START_MONITORING -> {
+                startForegroundMonitoring()
+            }
             ACTION_START_RECORDING -> {
-                val directionStr = intent.getStringExtra(EXTRA_DIRECTION) ?: CallDirection.UNKNOWN.name
+                val directionStr = intent?.getStringExtra(EXTRA_DIRECTION) ?: CallDirection.UNKNOWN.name
                 currentDirection = try { CallDirection.valueOf(directionStr) } catch (e: Exception) { CallDirection.UNKNOWN }
-                startForegroundWithNotification()
+                startForegroundRecording(currentDirection)
                 startRecordingSession(currentDirection)
             }
             ACTION_STOP_RECORDING -> {
                 stopRecordingSession()
             }
+            ACTION_STOP_MONITORING -> {
+                stopMonitoring()
+            }
         }
 
-        return START_NOT_STICKY
+        return START_STICKY
     }
 
-    private fun startForegroundWithNotification() {
-        val notification = buildNotification(getString(R.string.recording_active))
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
+    private fun startForegroundMonitoring() {
+        val notification = buildNotification("AutoCall Active: Monitoring phone calls")
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val serviceType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                } else {
+                    0
+                }
+                startForeground(NOTIFICATION_ID, notification, serviceType)
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        } catch (e: Exception) {
+            Log.e("CallRecordingService", "startForegroundMonitoring error", e)
+            try { startForeground(NOTIFICATION_ID, notification) } catch (ignored: Exception) {}
+        }
+    }
+
+    private fun startForegroundRecording(direction: CallDirection) {
+        val dirName = direction.name.lowercase().replaceFirstChar { it.uppercase() }
+        val notification = buildNotification("AutoCall: Recording $dirName Call in Progress…")
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val serviceType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                } else {
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                }
+                startForeground(NOTIFICATION_ID, notification, serviceType)
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        } catch (e: Exception) {
+            Log.e("CallRecordingService", "startForegroundRecording error", e)
+            try { startForeground(NOTIFICATION_ID, notification) } catch (ignored: Exception) {}
+        }
+    }
+
+    private fun stopMonitoring() {
+        serviceScope.launch {
+            if (recordingEngine?.isRecording() == true) {
+                stopRecordingSession()
+            }
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
         }
     }
 
@@ -113,11 +155,12 @@ class CallRecordingService : Service() {
                 } else {
                     val error = result.exceptionOrNull()?.message ?: "Unknown recording start error"
                     diagnosticsRepository.logEvent("RECORDING", "Failed to start audio capture: $error")
-                    stopSelf()
+                    // revert notification to monitoring
+                    startForegroundMonitoring()
                 }
             } catch (e: Exception) {
                 diagnosticsRepository.logEvent("RECORDING", "Exception starting capture: ${e.message}")
-                stopSelf()
+                startForegroundMonitoring()
             }
         }
     }
@@ -155,8 +198,43 @@ class CallRecordingService : Service() {
                             "Recording finalized successfully: ${file.name} ($duration s, $fileSize bytes). Added to delivery queue."
                         )
 
-                        // Trigger immediate WorkManager delivery
                         val settings = securePreferencesManager.loadSettings()
+                        val senderPassword = securePreferencesManager.getSenderPassword()
+
+                        // 1. Immediate asynchronous send attempt
+                        if (settings.recipientEmail.isNotBlank() && settings.senderEmail.isNotBlank()) {
+                            CoroutineScope(Dispatchers.IO).launch {
+                                try {
+                                    val emailProvider = com.autocall.mailrecorder.delivery.SmtpDeliveryProvider()
+                                    val sendResult = emailProvider.sendRecording(recording.copy(id = savedId), settings, senderPassword)
+                                    if (sendResult.isSuccess) {
+                                        val messageId = sendResult.getOrNull()
+                                        deliveryRepository.markDelivered(savedId, messageId)
+                                        diagnosticsRepository.logEvent(
+                                            "DELIVERY",
+                                            "Immediate email dispatch successful for recording #$savedId to ${settings.recipientEmail}"
+                                        )
+                                        if (settings.autoDeleteAfterSent) {
+                                            try {
+                                                if (file.exists()) file.delete()
+                                            } catch (e: Exception) {
+                                                Log.w("CallRecordingService", "Could not delete file after send", e)
+                                            }
+                                        }
+                                    } else {
+                                        val err = sendResult.exceptionOrNull()?.message ?: "Immediate send error"
+                                        diagnosticsRepository.logEvent(
+                                            "DELIVERY",
+                                            "Immediate email send failed ($err). WorkManager will retry in background."
+                                        )
+                                    }
+                                } catch (e: Exception) {
+                                    diagnosticsRepository.logEvent("DELIVERY", "Immediate send exception: ${e.message}")
+                                }
+                            }
+                        }
+
+                        // 2. Schedule persistent WorkManager delivery
                         WorkManagerScheduler.scheduleDelivery(this@CallRecordingService, settings.wifiOnly)
 
                         // Purge old recordings according to retention policy
@@ -171,8 +249,8 @@ class CallRecordingService : Service() {
             } finally {
                 recordingEngine = null
                 currentRecordingFile = null
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
+                // Return to active monitoring state instead of killing the service
+                startForegroundMonitoring()
             }
         }
     }
@@ -207,8 +285,36 @@ class CallRecordingService : Service() {
     companion object {
         const val CHANNEL_ID = "call_recording_channel"
         const val NOTIFICATION_ID = 9001
+        const val ACTION_START_MONITORING = "com.autocall.mailrecorder.ACTION_START_MONITORING"
+        const val ACTION_STOP_MONITORING = "com.autocall.mailrecorder.ACTION_STOP_MONITORING"
         const val ACTION_START_RECORDING = "com.autocall.mailrecorder.ACTION_START"
         const val ACTION_STOP_RECORDING = "com.autocall.mailrecorder.ACTION_STOP"
         const val EXTRA_DIRECTION = "extra_direction"
+
+        fun startMonitoring(context: Context) {
+            val intent = Intent(context, CallRecordingService::class.java).apply {
+                action = ACTION_START_MONITORING
+            }
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (e: Exception) {
+                Log.e("CallRecordingService", "Failed to start monitoring service", e)
+            }
+        }
+
+        fun stopMonitoring(context: Context) {
+            val intent = Intent(context, CallRecordingService::class.java).apply {
+                action = ACTION_STOP_MONITORING
+            }
+            try {
+                context.startService(intent)
+            } catch (e: Exception) {
+                Log.e("CallRecordingService", "Failed to stop monitoring service", e)
+            }
+        }
     }
 }

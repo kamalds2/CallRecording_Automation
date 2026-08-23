@@ -6,6 +6,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -48,7 +49,7 @@ fun SettingsScreen(
                 title = { Text("Settings") },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 }
             )
@@ -71,7 +72,22 @@ fun SettingsScreen(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.fillMaxWidth()
             )
-            Spacer(modifier = Modifier.height(8.dp))
+            // Gmail Preset Button
+            FilledTonalButton(
+                onClick = {
+                    senderHost = "smtp.gmail.com"
+                    senderPort = "465"
+                    useTls = false
+                },
+                modifier = Modifier.fillMaxWidth().height(36.dp),
+                shape = RoundedCornerShape(6.dp)
+            ) {
+                Icon(Icons.Default.Email, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Use Gmail Defaults (smtp.gmail.com:465 SSL)")
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
 
             OutlinedTextField(
                 value = recipientEmail,
@@ -85,7 +101,7 @@ fun SettingsScreen(
             OutlinedTextField(
                 value = senderEmail,
                 onValueChange = { senderEmail = it },
-                label = { Text("Sender Email") },
+                label = { Text("Sender Email (Gmail)") },
                 modifier = Modifier.fillMaxWidth()
             )
 
@@ -94,7 +110,7 @@ fun SettingsScreen(
             OutlinedTextField(
                 value = senderPassword,
                 onValueChange = { senderPassword = it },
-                label = { Text("Sender Password / App Password") },
+                label = { Text("Sender 16-char App Password") },
                 trailingIcon = {
                     IconButton(onClick = { passwordVisible = !passwordVisible }) {
                         Icon(
@@ -132,7 +148,7 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             // Section: Policies
-            Divider()
+            HorizontalDivider()
             Spacer(modifier = Modifier.height(16.dp))
             Text(
                 text = "Automation & Storage Policies",

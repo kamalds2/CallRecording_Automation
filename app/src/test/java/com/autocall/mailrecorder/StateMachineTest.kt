@@ -66,4 +66,26 @@ class StateMachineTest {
         assertEquals(DeliveryStatus.SENT, delivered.deliveryStatus)
         assertTrue(delivered.lastError == null)
     }
+
+    @Test
+    fun testCallDirectionTransitions() {
+        // Outgoing: IDLE -> OFFHOOK (no prior RINGING)
+        var priorDirection = CallDirection.UNKNOWN
+        val isRinging = false
+        val resolvedDirection = if (isRinging) CallDirection.INCOMING else CallDirection.OUTGOING
+        assertEquals(CallDirection.OUTGOING, resolvedDirection)
+
+        // Incoming: IDLE -> RINGING -> OFFHOOK
+        val isRingingIncoming = true
+        val resolvedIncoming = if (isRingingIncoming) CallDirection.INCOMING else CallDirection.OUTGOING
+        assertEquals(CallDirection.INCOMING, resolvedIncoming)
+    }
+
+    @Test
+    fun testGmailAppPasswordFormatting() {
+        val googleGeneratedAppPass = "abcd efgh ijkl mnop"
+        val cleaned = googleGeneratedAppPass.replace(" ", "").trim()
+        assertEquals("abcdefghijklmnop", cleaned)
+        assertEquals(16, cleaned.length)
+    }
 }

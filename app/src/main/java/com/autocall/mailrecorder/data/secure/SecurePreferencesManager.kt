@@ -33,7 +33,7 @@ class SecurePreferencesManager(context: Context) {
 
     fun loadSettings(): AppSettings {
         return AppSettings(
-            automationEnabled = prefs.getBoolean(KEY_AUTOMATION_ENABLED, false),
+            automationEnabled = prefs.getBoolean(KEY_AUTOMATION_ENABLED, true),
             recipientEmail = prefs.getString(KEY_RECIPIENT_EMAIL, "") ?: "",
             deliveryProvider = prefs.getString(KEY_DELIVERY_PROVIDER, "SMTP") ?: "SMTP",
             senderEmail = prefs.getString(KEY_SENDER_EMAIL, "") ?: "",

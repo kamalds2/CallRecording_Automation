@@ -137,7 +137,7 @@ fun ConsentScreen(
             Button(
                 onClick = {
                     settingsRepository.setConsentAccepted(true)
-                    navController.navigate(Screen.Permissions.route) {
+                    navController.navigate(Screen.EmailSetup.route) {
                         popUpTo(Screen.Consent.route) { inclusive = true }
                     }
                 },

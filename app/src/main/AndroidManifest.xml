@@ -13,6 +13,9 @@
     <!-- Foreground Service Permissions -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <!-- Notifications -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -33,7 +36,7 @@
         android:roundIcon="@android:drawable/ic_btn_speak_now"
         android:supportsRtl="true"
         android:theme="@style/Theme.AutoCallMailRecorder"
-        tools:targetApi="34">
+        tools:targetApi="35">
 
         <activity
             android:name=".MainActivity"
@@ -46,12 +49,16 @@
             </intent-filter>
         </activity>
 
-        <!-- Foreground Service for Call Recording -->
+        <!-- Foreground Service for Call Recording & Monitoring -->
         <service
             android:name=".service.CallRecordingService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="microphone" />
+            android:foregroundServiceType="microphone|specialUse|dataSync">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Automated call audio recording and secure email delivery" />
+        </service>
 
         <!-- Broadcast Receiver for Call State Monitoring -->
         <receiver

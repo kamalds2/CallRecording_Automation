@@ -1,1 +1,16 @@
-.gradle/
+*.iml
+.gradle
+/local.properties
+/.idea/
+.DS_Store
+/build
+/app/build
+/app/debug
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+*.keystore
+*.jks
+*keyfile*
+New folder/

@@ -6,10 +6,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
@@ -18,6 +18,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
@@ -50,6 +52,18 @@ fun EmailSetupScreen(
 
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    // Auto-request permissions if missing
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ -> }
+
+    LaunchedEffect(Unit) {
+        if (!com.autocall.mailrecorder.permissions.PermissionManager.hasAllRequiredPermissions(context)) {
+            permissionLauncher.launch(com.autocall.mailrecorder.permissions.PermissionManager.getRequiredPermissions().toTypedArray())
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -69,10 +83,45 @@ fun EmailSetupScreen(
         ) {
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Configure your sender credentials and destination recipient email address.",
+                text = "Configure your Gmail / email account for automated call recording deliveries.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Gmail Quick Setup Helper Card
+            Card(
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Email, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Google Mail (Gmail) Integration", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "1. Enter your Gmail address (sender & recipient).\n2. For password, generate a 16-letter App Password at Google Account > Security > 2-Step Verification > App Passwords.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    FilledTonalButton(
+                        onClick = {
+                            senderHost = "smtp.gmail.com"
+                            senderPort = "465"
+                            useTls = false // SSL Port 465
+                        },
+                        modifier = Modifier.fillMaxWidth().height(36.dp),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text("Apply Gmail Preset (smtp.gmail.com : 465 SSL)")
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
 
             // Recipient Email
@@ -80,7 +129,7 @@ fun EmailSetupScreen(
                 value = recipientEmail,
                 onValueChange = { recipientEmail = it },
                 label = { Text("Recipient Email (Deliver To)") },
-                placeholder = { Text("recipient@example.com") },
+                placeholder = { Text("your_email@gmail.com") },
                 leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
@@ -92,9 +141,14 @@ fun EmailSetupScreen(
             // Sender Email
             OutlinedTextField(
                 value = senderEmail,
-                onValueChange = { senderEmail = it },
-                label = { Text("Sender Email Account") },
-                placeholder = { Text("youraccount@gmail.com") },
+                onValueChange = { 
+                    senderEmail = it
+                    if (recipientEmail.isBlank()) {
+                        recipientEmail = it
+                    }
+                },
+                label = { Text("Sender Google/Gmail Address") },
+                placeholder = { Text("sender@gmail.com") },
                 leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
@@ -107,7 +161,8 @@ fun EmailSetupScreen(
             OutlinedTextField(
                 value = senderPassword,
                 onValueChange = { senderPassword = it },
-                label = { Text("Sender Password / App Password") },
+                label = { Text("Google 16-character App Password") },
+                placeholder = { Text("abcd efgh ijkl mnop") },
                 leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
                 trailingIcon = {
                     IconButton(onClick = { passwordVisible = !passwordVisible }) {
@@ -133,7 +188,7 @@ fun EmailSetupScreen(
                 OutlinedTextField(
                     value = senderHost,
                     onValueChange = { senderHost = it },
-                    label = { Text("SMTP Host") },
+                    label = { Text("SMTP Server") },
                     placeholder = { Text("smtp.gmail.com") },
                     singleLine = true,
                     modifier = Modifier.weight(2f)
@@ -143,7 +198,7 @@ fun EmailSetupScreen(
                     value = senderPort,
                     onValueChange = { senderPort = it },
                     label = { Text("Port") },
-                    placeholder = { Text("587") },
+                    placeholder = { Text("465") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.weight(1f)
@@ -204,7 +259,7 @@ fun EmailSetupScreen(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Testing SMTP Connection…")
                 } else {
-                    Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Send Test Email")
                 }

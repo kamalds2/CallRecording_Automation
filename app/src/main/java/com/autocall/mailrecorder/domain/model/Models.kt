@@ -52,7 +52,7 @@ data class DeliveryJob(
 
 data class AppSettings(
     val id: Int = 1,
-    val automationEnabled: Boolean = false,
+    val automationEnabled: Boolean = true,
     val recipientEmail: String = "",
     val deliveryProvider: String = "SMTP", // "SMTP" or "BACKEND"
     val senderEmail: String = "",

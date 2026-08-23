@@ -38,12 +38,14 @@ class CallBroadcastReceiver : BroadcastReceiver() {
         val diagnostics = DiagnosticsRepositoryImpl(db)
 
         if (action == Intent.ACTION_BOOT_COMPLETED) {
+            CallRecordingService.startMonitoring(context)
             CoroutineScope(Dispatchers.IO).launch {
-                diagnostics.logEvent("SYSTEM", "Device booted. Call automation service re-initialized.")
+                diagnostics.logEvent("SYSTEM", "Device booted. Call automation monitoring started.")
             }
             return
         }
 
+        @Suppress("DEPRECATION")
         if (action == Intent.ACTION_NEW_OUTGOING_CALL) {
             lastCallDirection = CallDirection.OUTGOING
             return
@@ -51,30 +53,56 @@ class CallBroadcastReceiver : BroadcastReceiver() {
 
         if (action == TelephonyManager.ACTION_PHONE_STATE_CHANGED) {
             val stateStr = intent.getStringExtra(TelephonyManager.EXTRA_STATE) ?: return
-            Log.d("CallBroadcastReceiver", "Telephony state: $stateStr, Direction: $lastCallDirection")
+            Log.d("CallBroadcastReceiver", "Telephony state: $stateStr, Prior Direction: $lastCallDirection")
 
             when (stateStr) {
                 TelephonyManager.EXTRA_STATE_RINGING -> {
                     lastCallDirection = CallDirection.INCOMING
+                    CoroutineScope(Dispatchers.IO).launch {
+                        diagnostics.logEvent(
+                            "TELECOM",
+                            "Incoming call ringing detected."
+                        )
+                    }
                 }
                 TelephonyManager.EXTRA_STATE_OFFHOOK -> {
-                    // Call is now active (answered or dialed)
-                    val direction = lastCallDirection
+                    // Call is now active (answered or outgoing dialed)
+                    val direction = if (lastCallDirection == CallDirection.INCOMING) {
+                        CallDirection.INCOMING
+                    } else {
+                        CallDirection.OUTGOING
+                    }
+                    lastCallDirection = direction
+
                     val serviceIntent = Intent(context, CallRecordingService::class.java).apply {
                         this.action = CallRecordingService.ACTION_START_RECORDING
                         putExtra(CallRecordingService.EXTRA_DIRECTION, direction.name)
                     }
 
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        context.startForegroundService(serviceIntent)
-                    } else {
-                        context.startService(serviceIntent)
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            context.startForegroundService(serviceIntent)
+                        } else {
+                            context.startService(serviceIntent)
+                        }
+                    } catch (e: Exception) {
+                        Log.e("CallBroadcastReceiver", "Failed to start recording service", e)
+                        CoroutineScope(Dispatchers.IO).launch {
+                            diagnostics.logEvent("TELECOM", "Foreground start error: ${e.message}. Attempting fallback startService.")
+                        }
+                        try {
+                            context.startService(serviceIntent)
+                        } catch (ex: Exception) {
+                            CoroutineScope(Dispatchers.IO).launch {
+                                diagnostics.logEvent("TELECOM", "Fallback service start failed: ${ex.message}")
+                            }
+                        }
                     }
 
                     CoroutineScope(Dispatchers.IO).launch {
                         diagnostics.logEvent(
                             "TELECOM",
-                            "Active call detected (${direction.name}). Dispatched recording service start."
+                            "Active call started (${direction.name}). Dispatched recording service."
                         )
                     }
                 }
@@ -83,7 +111,11 @@ class CallBroadcastReceiver : BroadcastReceiver() {
                     val serviceIntent = Intent(context, CallRecordingService::class.java).apply {
                         this.action = CallRecordingService.ACTION_STOP_RECORDING
                     }
-                    context.startService(serviceIntent)
+                    try {
+                        context.startService(serviceIntent)
+                    } catch (e: Exception) {
+                        Log.e("CallBroadcastReceiver", "Failed to stop CallRecordingService", e)
+                    }
 
                     // reset direction
                     lastCallDirection = CallDirection.UNKNOWN

@@ -44,8 +44,8 @@ class SmtpDeliveryProvider : EmailDeliveryProvider {
 
             val session = createSmtpSession(settings, senderPassword)
             val message = MimeMessage(session).apply {
-                setFrom(InternetAddress(settings.senderEmail))
-                setRecipients(Message.RecipientType.TO, InternetAddress.parse(settings.recipientEmail))
+                setFrom(InternetAddress(cleanEmail(settings.senderEmail)))
+                setRecipients(Message.RecipientType.TO, InternetAddress.parse(cleanEmail(settings.recipientEmail)))
 
                 val dateStr = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date(recording.startedAt))
                 val directionStr = recording.direction.name.lowercase().replaceFirstChar { it.uppercase() }
@@ -91,7 +91,8 @@ class SmtpDeliveryProvider : EmailDeliveryProvider {
             Result.success(messageId)
         } catch (e: Exception) {
             Log.e("SmtpDeliveryProvider", "Failed to send email via SMTP", e)
-            Result.failure(e)
+            val errorMsg = parseSmtpError(e)
+            Result.failure(Exception(errorMsg, e))
         }
     }
 
@@ -102,8 +103,8 @@ class SmtpDeliveryProvider : EmailDeliveryProvider {
         return try {
             val session = createSmtpSession(settings, senderPassword)
             val message = MimeMessage(session).apply {
-                setFrom(InternetAddress(settings.senderEmail))
-                setRecipients(Message.RecipientType.TO, InternetAddress.parse(settings.recipientEmail))
+                setFrom(InternetAddress(cleanEmail(settings.senderEmail)))
+                setRecipients(Message.RecipientType.TO, InternetAddress.parse(cleanEmail(settings.recipientEmail)))
                 subject = "AutoCall Mail Recorder – Test Email"
                 setText(
                     """
@@ -125,23 +126,57 @@ class SmtpDeliveryProvider : EmailDeliveryProvider {
             Result.success(messageId)
         } catch (e: Exception) {
             Log.e("SmtpDeliveryProvider", "Test email failed", e)
-            Result.failure(e)
+            val errorMsg = parseSmtpError(e)
+            Result.failure(Exception(errorMsg, e))
         }
     }
 
-    private fun createSmtpSession(settings: AppSettings, senderPassword: String): Session {
+    private fun parseSmtpError(e: Exception): String {
+        val rawMsg = e.message ?: e.cause?.message ?: "Unknown error"
+        return when {
+            rawMsg.contains("535", ignoreCase = true) || rawMsg.contains("Authentication", ignoreCase = true) || rawMsg.contains("Username and Password not accepted", ignoreCase = true) -> {
+                "Authentication Failed (535): Google rejected the login credentials. Ensure you are using a 16-character Google App Password (not your regular Gmail password) from myaccount.google.com/apppasswords."
+            }
+            rawMsg.contains("ConnectException", ignoreCase = true) || rawMsg.contains("SocketTimeout", ignoreCase = true) || rawMsg.contains("Could not connect", ignoreCase = true) -> {
+                "Connection Failed: Could not connect to SMTP server. Please check your internet connection or try switching between Port 465 (SSL) and Port 587 (TLS)."
+            }
+            rawMsg.contains("Invalid Addresses", ignoreCase = true) || rawMsg.contains("AddressException", ignoreCase = true) -> {
+                "Invalid Email Address: Please verify that both Sender and Recipient email addresses are correctly formatted."
+            }
+            else -> rawMsg
+        }
+    }
+
+    private fun cleanPassword(password: String): String {
+        // Strip all spaces (e.g. from Google 16-character App Passwords copied as "abcd efgh ijkl mnop")
+        return password.replace("\\s+".toRegex(), "").trim()
+    }
+
+    private fun cleanEmail(email: String): String {
+        return email.trim()
+    }
+
+    private fun createSmtpSession(settings: AppSettings, rawPassword: String): Session {
+        val cleanPass = cleanPassword(rawPassword)
+        val cleanSender = cleanEmail(settings.senderEmail)
+        val host = settings.senderHost.trim().ifBlank { "smtp.gmail.com" }
+        val port = settings.senderPort
+
         val props = Properties().apply {
             put("mail.smtp.auth", "true")
-            put("mail.smtp.host", settings.senderHost)
-            put("mail.smtp.port", settings.senderPort.toString())
+            put("mail.smtp.host", host)
+            put("mail.smtp.port", port.toString())
             put("mail.smtp.connectiontimeout", "15000")
             put("mail.smtp.timeout", "20000")
+            put("mail.smtp.ssl.trust", "*")
+            put("mail.smtp.ssl.protocols", "TLSv1.2 TLSv1.3")
 
-            if (settings.senderPort == 465) {
+            if (port == 465) {
+                put("mail.smtp.ssl.enable", "true")
                 put("mail.smtp.socketFactory.port", "465")
                 put("mail.smtp.socketFactory.class", "javax.net.ssl.SSLSocketFactory")
-                put("mail.smtp.ssl.enable", "true")
-            } else if (settings.useTls) {
+                put("mail.smtp.socketFactory.fallback", "false")
+            } else {
                 put("mail.smtp.starttls.enable", "true")
                 put("mail.smtp.starttls.required", "true")
             }
@@ -149,7 +184,7 @@ class SmtpDeliveryProvider : EmailDeliveryProvider {
 
         return Session.getInstance(props, object : Authenticator() {
             override fun getPasswordAuthentication(): PasswordAuthentication {
-                return PasswordAuthentication(settings.senderEmail, senderPassword)
+                return PasswordAuthentication(cleanSender, cleanPass)
             }
         })
     }

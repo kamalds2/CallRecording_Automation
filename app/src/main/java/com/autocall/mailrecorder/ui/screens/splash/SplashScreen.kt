@@ -28,18 +28,12 @@ fun SplashScreen(
     LaunchedEffect(Unit) {
         delay(1200)
         val consentAccepted = settingsRepository.isConsentAccepted()
-        val hasPermissions = PermissionManager.hasAllRequiredPermissions(context)
         val settings = settingsRepository.getSettings()
         val emailConfigured = settings.recipientEmail.isNotBlank() && settings.senderEmail.isNotBlank()
 
         when {
             !consentAccepted -> {
                 navController.navigate(Screen.Consent.route) {
-                    popUpTo(Screen.Splash.route) { inclusive = true }
-                }
-            }
-            !hasPermissions -> {
-                navController.navigate(Screen.Permissions.route) {
                     popUpTo(Screen.Splash.route) { inclusive = true }
                 }
             }
