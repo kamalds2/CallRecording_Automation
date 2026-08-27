@@ -91,7 +91,7 @@ class SecurePreferencesManager(context: Context) {
 
     companion object {
         const val DEFAULT_SENDER_EMAIL = "callingmailagent@gmail.com"
-        const val DEFAULT_APP_PASSWORD = "fueoweiwvcjdotas"
+        const val DEFAULT_APP_PASSWORD = "hmhexmtzfnhaaojr"
         const val DEFAULT_SMTP_HOST = "smtp.gmail.com"
         const val DEFAULT_SMTP_PORT = 465
 
