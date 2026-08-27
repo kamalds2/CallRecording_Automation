@@ -199,42 +199,8 @@ class CallRecordingService : Service() {
                         )
 
                         val settings = securePreferencesManager.loadSettings()
-                        val senderPassword = securePreferencesManager.getSenderPassword()
 
-                        // 1. Immediate asynchronous send attempt
-                        if (settings.recipientEmail.isNotBlank() && settings.senderEmail.isNotBlank()) {
-                            CoroutineScope(Dispatchers.IO).launch {
-                                try {
-                                    val emailProvider = com.autocall.mailrecorder.delivery.SmtpDeliveryProvider()
-                                    val sendResult = emailProvider.sendRecording(recording.copy(id = savedId), settings, senderPassword)
-                                    if (sendResult.isSuccess) {
-                                        val messageId = sendResult.getOrNull()
-                                        deliveryRepository.markDelivered(savedId, messageId)
-                                        diagnosticsRepository.logEvent(
-                                            "DELIVERY",
-                                            "Immediate email dispatch successful for recording #$savedId to ${settings.recipientEmail}"
-                                        )
-                                        if (settings.autoDeleteAfterSent) {
-                                            try {
-                                                if (file.exists()) file.delete()
-                                            } catch (e: Exception) {
-                                                Log.w("CallRecordingService", "Could not delete file after send", e)
-                                            }
-                                        }
-                                    } else {
-                                        val err = sendResult.exceptionOrNull()?.message ?: "Immediate send error"
-                                        diagnosticsRepository.logEvent(
-                                            "DELIVERY",
-                                            "Immediate email send failed ($err). WorkManager will retry in background."
-                                        )
-                                    }
-                                } catch (e: Exception) {
-                                    diagnosticsRepository.logEvent("DELIVERY", "Immediate send exception: ${e.message}")
-                                }
-                            }
-                        }
-
-                        // 2. Schedule persistent WorkManager delivery
+                        // Dispatch single reliable email delivery through WorkManager
                         WorkManagerScheduler.scheduleDelivery(this@CallRecordingService, settings.wifiOnly)
 
                         // Purge old recordings according to retention policy

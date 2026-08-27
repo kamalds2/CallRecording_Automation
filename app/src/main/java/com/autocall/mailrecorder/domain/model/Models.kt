@@ -55,7 +55,7 @@ data class AppSettings(
     val automationEnabled: Boolean = true,
     val recipientEmail: String = "",
     val deliveryProvider: String = "SMTP",
-    val senderEmail: String = "kamalkumar.doddi@gmail.com",
+    val senderEmail: String = "callingmailagent@gmail.com",
     val senderHost: String = "smtp.gmail.com",
     val senderPort: Int = 465, // SSL port
     val useTls: Boolean = false,

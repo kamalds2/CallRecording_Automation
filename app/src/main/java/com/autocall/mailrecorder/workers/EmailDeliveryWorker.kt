@@ -44,10 +44,16 @@ class EmailDeliveryWorker(
         for (job in pendingJobs) {
             val recording = recordingRepo.getRecordingById(job.recordingId)
             if (recording == null) {
-                // Recording was deleted, mark done
                 deliveryRepo.markFailed(job.recordingId, "Recording not found on disk or database", retryable = false)
                 continue
             }
+
+            if (job.status == com.autocall.mailrecorder.domain.model.DeliveryStatus.SENT || recording.deliveryStatus == com.autocall.mailrecorder.domain.model.DeliveryStatus.SENT) {
+                continue
+            }
+
+            // Mark sending to prevent race conditions
+            deliveryRepo.updateJob(job.copy(status = com.autocall.mailrecorder.domain.model.DeliveryStatus.SENDING))
 
             // Attempt delivery
             val sendResult = emailProvider.sendRecording(recording, settings, senderPassword)
