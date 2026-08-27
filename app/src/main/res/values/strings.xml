@@ -5,4 +5,5 @@
     <string name="notification_channel_desc">Active recording and background delivery status</string>
     <string name="recording_active">Recording Active Call</string>
     <string name="recording_saving">Finalizing and Queuing Recording…</string>
+    <string name="accessibility_service_desc">Required to enable clear, unmuted call audio capture on Android 10, 11, 12, 13, and 14+ devices during active phone calls.</string>
 </resources>

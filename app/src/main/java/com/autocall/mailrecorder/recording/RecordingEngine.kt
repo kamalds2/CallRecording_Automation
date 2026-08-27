@@ -23,13 +23,126 @@ interface RecordingEngine {
     fun isRecording(): Boolean
 }
 
-class AudioRecordEngine(
-    private val context: Context,
-    private val preferredSourceStr: String = "VOICE_RECOGNITION",
-    private val gainMultiplier: Float = 2.5f
+class MediaRecorderEngine(
+    private val context: Context
 ) : RecordingEngine {
 
-    override val name: String = "Enhanced AudioRecord (PCM / WAV + Gain Amplification)"
+    override val name: String = "MediaRecorder (M4A / AAC)"
+    override val fileExtension: String = "m4a"
+
+    private var mediaRecorder: MediaRecorder? = null
+    private var currentOutputFile: File? = null
+    private var recording = false
+
+    @Suppress("DEPRECATION")
+    override fun startRecording(outputFile: File): Result<Unit> {
+        currentOutputFile = outputFile
+
+        // Unmute microphone via AudioManager
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        audioManager?.let {
+            try {
+                it.isMicrophoneMute = false
+                it.mode = AudioManager.MODE_IN_COMMUNICATION
+            } catch (e: Exception) {
+                Log.w("MediaRecorderEngine", "AudioManager configuration error: ${e.message}")
+            }
+        }
+
+        val sourcesToTry = listOf(
+            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            MediaRecorder.AudioSource.MIC,
+            MediaRecorder.AudioSource.DEFAULT
+        )
+
+        for (source in sourcesToTry) {
+            val result = tryStartRecorder(outputFile, source)
+            if (result.isSuccess) {
+                Log.d("MediaRecorderEngine", "Started recording with source: $source")
+                return result
+            }
+        }
+
+        return Result.failure(IllegalStateException("Failed to initialize MediaRecorder with any audio source"))
+    }
+
+    @Suppress("DEPRECATION")
+    private fun tryStartRecorder(outputFile: File, source: Int): Result<Unit> {
+        return try {
+            mediaRecorder?.release()
+            mediaRecorder = null
+
+            val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                MediaRecorder(context)
+            } else {
+                MediaRecorder()
+            }
+
+            recorder.setAudioSource(source)
+            recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+            recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+            recorder.setAudioEncodingBitRate(128000)
+            recorder.setAudioSamplingRate(44100)
+            recorder.setOutputFile(outputFile.absolutePath)
+
+            recorder.prepare()
+            recorder.start()
+            mediaRecorder = recorder
+            recording = true
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.w("MediaRecorderEngine", "Source $source failed: ${e.message}")
+            mediaRecorder?.release()
+            mediaRecorder = null
+            recording = false
+            Result.failure(e)
+        }
+    }
+
+    override fun stopRecording(): Result<File> {
+        return try {
+            if (recording && mediaRecorder != null) {
+                try {
+                    mediaRecorder?.stop()
+                } catch (e: Exception) {
+                    Log.w("MediaRecorderEngine", "Stop exception (short call)", e)
+                }
+                mediaRecorder?.release()
+                mediaRecorder = null
+                recording = false
+
+                // Reset AudioManager mode
+                val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                audioManager?.mode = AudioManager.MODE_NORMAL
+
+                currentOutputFile?.let {
+                    if (it.exists() && it.length() > 0) {
+                        Result.success(it)
+                    } else {
+                        Result.failure(IllegalStateException("Recording file is empty"))
+                    }
+                } ?: Result.failure(IllegalStateException("No output file"))
+            } else {
+                Result.failure(IllegalStateException("Not recording"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        } finally {
+            mediaRecorder?.release()
+            mediaRecorder = null
+            recording = false
+        }
+    }
+
+    override fun isRecording(): Boolean = recording
+}
+
+class AudioRecordEngine(
+    private val context: Context
+) : RecordingEngine {
+
+    override val name: String = "AudioRecord (PCM / WAV with Auto-Gain)"
     override val fileExtension: String = "wav"
 
     private var audioRecord: AudioRecord? = null
@@ -45,56 +158,77 @@ class AudioRecordEngine(
         return try {
             currentOutputFile = outputFile
 
-            // Ensure microphone is unmuted via AudioManager
             val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
             audioManager?.let {
                 try {
                     it.isMicrophoneMute = false
+                    it.mode = AudioManager.MODE_IN_COMMUNICATION
                 } catch (e: Exception) {
-                    Log.w("AudioRecordEngine", "Could not unmute microphone: ${e.message}")
+                    Log.w("AudioRecordEngine", "AudioManager config error: ${e.message}")
                 }
             }
 
             val bufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat).coerceAtLeast(8192)
 
-            // Resolve sources priority list
-            val candidateSources = getSourceCandidates(preferredSourceStr)
-            var initializedRecord: AudioRecord? = null
+            val sources = listOf(
+                MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                MediaRecorder.AudioSource.MIC,
+                MediaRecorder.AudioSource.DEFAULT
+            )
 
-            for (source in candidateSources) {
+            var record: AudioRecord? = null
+            for (source in sources) {
                 try {
-                    val record = AudioRecord(source, sampleRate, channelConfig, audioFormat, bufferSize)
-                    if (record.state == AudioRecord.STATE_INITIALIZED) {
-                        initializedRecord = record
-                        Log.d("AudioRecordEngine", "Successfully initialized AudioRecord with source: $source")
+                    val r = AudioRecord(source, sampleRate, channelConfig, audioFormat, bufferSize)
+                    if (r.state == AudioRecord.STATE_INITIALIZED) {
+                        record = r
                         break
                     } else {
-                        record.release()
+                        r.release()
                     }
                 } catch (e: Exception) {
-                    Log.w("AudioRecordEngine", "Failed source $source: ${e.message}")
+                    Log.w("AudioRecordEngine", "Source $source failed: ${e.message}")
                 }
             }
 
-            if (initializedRecord == null) {
-                return Result.failure(IllegalStateException("No AudioRecord source could be initialized."))
+            if (record == null) {
+                return Result.failure(IllegalStateException("Cannot initialize AudioRecord"))
             }
 
-            initializedRecord.startRecording()
-            audioRecord = initializedRecord
+            record.startRecording()
+            audioRecord = record
             recording = true
 
             recordingThread = Thread {
-                writePcmDataToWav(outputFile, initializedRecord, bufferSize, gainMultiplier)
+                val data = ByteArray(bufferSize)
+                FileOutputStream(outputFile).use { out ->
+                    out.write(ByteArray(44)) // WAV placeholder
+                    while (recording) {
+                        val read = record.read(data, 0, bufferSize)
+                        if (read > 0) {
+                            // Apply 3x software boost
+                            for (i in 0 until read - 1 step 2) {
+                                val low = data[i].toInt() and 0xFF
+                                val high = data[i + 1].toInt()
+                                val sample = (high shl 8) or low
+
+                                var amplified = (sample * 3.0f).toInt()
+                                if (amplified > 32767) amplified = 32767
+                                if (amplified < -32768) amplified = -32768
+
+                                data[i] = (amplified and 0xFF).toByte()
+                                data[i + 1] = ((amplified shr 8) and 0xFF).toByte()
+                            }
+                            out.write(data, 0, read)
+                        }
+                    }
+                }
             }
             recordingThread?.start()
 
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("AudioRecordEngine", "Failed to start AudioRecord", e)
-            audioRecord?.release()
-            audioRecord = null
-            recording = false
             Result.failure(e)
         }
     }
@@ -105,8 +239,11 @@ class AudioRecordEngine(
             audioRecord?.stop()
             audioRecord?.release()
             audioRecord = null
-            recordingThread?.join(3000)
+            recordingThread?.join(2000)
             recordingThread = null
+
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            audioManager?.mode = AudioManager.MODE_NORMAL
 
             currentOutputFile?.let {
                 updateWavHeader(it)
@@ -114,45 +251,10 @@ class AudioRecordEngine(
             } ?: return Result.failure(IllegalStateException("No output file"))
         } catch (e: Exception) {
             return Result.failure(e)
-        } finally {
-            audioRecord?.release()
-            audioRecord = null
-            recording = false
         }
     }
 
     override fun isRecording(): Boolean = recording
-
-    private fun writePcmDataToWav(file: File, record: AudioRecord, bufferSize: Int, gain: Float) {
-        val rawBuffer = ByteArray(bufferSize)
-        FileOutputStream(file).use { out ->
-            // write placeholder 44-byte WAV header
-            out.write(ByteArray(44))
-
-            while (recording) {
-                val read = record.read(rawBuffer, 0, bufferSize)
-                if (read > 0) {
-                    // Apply software gain amplification to 16-bit PCM samples
-                    if (gain > 1.0f) {
-                        for (i in 0 until read - 1 step 2) {
-                            val low = rawBuffer[i].toInt() and 0xFF
-                            val high = rawBuffer[i + 1].toInt()
-                            val sample = (high shl 8) or low
-
-                            var amplified = (sample * gain).toInt()
-                            // Soft clipping clamp
-                            if (amplified > 32767) amplified = 32767
-                            if (amplified < -32768) amplified = -32768
-
-                            rawBuffer[i] = (amplified and 0xFF).toByte()
-                            rawBuffer[i + 1] = ((amplified shr 8) and 0xFF).toByte()
-                        }
-                    }
-                    out.write(rawBuffer, 0, read)
-                }
-            }
-        }
-    }
 
     private fun updateWavHeader(file: File) {
         if (!file.exists() || file.length() < 44) return
@@ -211,128 +313,12 @@ class AudioRecordEngine(
             raf.write(header, 0, 44)
         }
     }
-
-    private fun getSourceCandidates(pref: String): List<Int> {
-        val primary = when (pref) {
-            "VOICE_RECOGNITION" -> MediaRecorder.AudioSource.VOICE_RECOGNITION
-            "MIC" -> MediaRecorder.AudioSource.MIC
-            "VOICE_COMMUNICATION" -> MediaRecorder.AudioSource.VOICE_COMMUNICATION
-            "UNPROCESSED" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) MediaRecorder.AudioSource.UNPROCESSED else MediaRecorder.AudioSource.MIC
-            else -> MediaRecorder.AudioSource.VOICE_RECOGNITION
-        }
-
-        return listOf(
-            primary,
-            MediaRecorder.AudioSource.VOICE_RECOGNITION,
-            MediaRecorder.AudioSource.MIC,
-            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
-            MediaRecorder.AudioSource.DEFAULT
-        ).distinct()
-    }
-}
-
-class MediaRecorderEngine(
-    private val context: Context,
-    private val audioSource: Int = MediaRecorder.AudioSource.VOICE_RECOGNITION
-) : RecordingEngine {
-
-    override val name: String = "MediaRecorder (M4A / AAC)"
-    override val fileExtension: String = "m4a"
-
-    private var mediaRecorder: MediaRecorder? = null
-    private var currentOutputFile: File? = null
-    private var recording = false
-
-    @Suppress("DEPRECATION")
-    override fun startRecording(outputFile: File): Result<Unit> {
-        currentOutputFile = outputFile
-        
-        val sources = listOf(
-            audioSource,
-            MediaRecorder.AudioSource.VOICE_RECOGNITION,
-            MediaRecorder.AudioSource.MIC,
-            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
-            MediaRecorder.AudioSource.DEFAULT
-        ).distinct()
-
-        for (source in sources) {
-            val res = tryStartMediaRecorder(outputFile, source)
-            if (res.isSuccess) {
-                return res
-            }
-        }
-
-        return Result.failure(IllegalStateException("Failed to initialize MediaRecorder with any audio source"))
-    }
-
-    @Suppress("DEPRECATION")
-    private fun tryStartMediaRecorder(outputFile: File, source: Int): Result<Unit> {
-        return try {
-            mediaRecorder?.release()
-            mediaRecorder = null
-
-            val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                MediaRecorder(context)
-            } else {
-                MediaRecorder()
-            }
-
-            recorder.setAudioSource(source)
-            recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-            recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-            recorder.setAudioEncodingBitRate(128000)
-            recorder.setAudioSamplingRate(44100)
-            recorder.setOutputFile(outputFile.absolutePath)
-
-            recorder.prepare()
-            recorder.start()
-            mediaRecorder = recorder
-            recording = true
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Log.w("MediaRecorderEngine", "MediaRecorder failed with source $source: ${e.message}")
-            mediaRecorder?.release()
-            mediaRecorder = null
-            recording = false
-            Result.failure(e)
-        }
-    }
-
-    override fun stopRecording(): Result<File> {
-        return try {
-            if (recording && mediaRecorder != null) {
-                try {
-                    mediaRecorder?.stop()
-                } catch (e: Exception) {
-                    Log.w("MediaRecorderEngine", "Stop exception", e)
-                }
-                mediaRecorder?.release()
-                mediaRecorder = null
-                recording = false
-                currentOutputFile?.let { Result.success(it) } ?: Result.failure(IllegalStateException("No output file"))
-            } else {
-                Result.failure(IllegalStateException("Not recording"))
-            }
-        } catch (e: Exception) {
-            Result.failure(e)
-        } finally {
-            mediaRecorder?.release()
-            mediaRecorder = null
-            recording = false
-        }
-    }
-
-    override fun isRecording(): Boolean = recording
 }
 
 object RecordingEngineFactory {
-    fun createEngine(
-        context: Context,
-        audioSource: String = "VOICE_RECOGNITION",
-        gainMultiplier: Float = 2.5f
-    ): RecordingEngine {
-        // High-reliability AudioRecord engine with software gain amplification
-        return AudioRecordEngine(context, audioSource, gainMultiplier)
+    fun createEngine(context: Context): RecordingEngine {
+        // Preferred high-compatibility MediaRecorder (AAC/M4A)
+        return MediaRecorderEngine(context)
     }
 
     fun generateRecordingFile(context: Context, direction: CallDirection, extension: String): File {

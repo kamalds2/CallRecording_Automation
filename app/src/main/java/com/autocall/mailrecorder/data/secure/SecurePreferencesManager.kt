@@ -36,16 +36,14 @@ class SecurePreferencesManager(context: Context) {
             automationEnabled = prefs.getBoolean(KEY_AUTOMATION_ENABLED, true),
             recipientEmail = prefs.getString(KEY_RECIPIENT_EMAIL, "") ?: "",
             deliveryProvider = prefs.getString(KEY_DELIVERY_PROVIDER, "SMTP") ?: "SMTP",
-            senderEmail = prefs.getString(KEY_SENDER_EMAIL, "") ?: "",
-            senderHost = prefs.getString(KEY_SENDER_HOST, "smtp.gmail.com") ?: "smtp.gmail.com",
-            senderPort = prefs.getInt(KEY_SENDER_PORT, 587),
-            useTls = prefs.getBoolean(KEY_USE_TLS, true),
+            senderEmail = prefs.getString(KEY_SENDER_EMAIL, DEFAULT_SENDER_EMAIL) ?: DEFAULT_SENDER_EMAIL,
+            senderHost = prefs.getString(KEY_SENDER_HOST, DEFAULT_SMTP_HOST) ?: DEFAULT_SMTP_HOST,
+            senderPort = prefs.getInt(KEY_SENDER_PORT, DEFAULT_SMTP_PORT),
+            useTls = prefs.getBoolean(KEY_USE_TLS, false),
             backendUrl = prefs.getString(KEY_BACKEND_URL, "") ?: "",
             retentionDays = prefs.getInt(KEY_RETENTION_DAYS, 30),
             wifiOnly = prefs.getBoolean(KEY_WIFI_ONLY, false),
-            autoDeleteAfterSent = prefs.getBoolean(KEY_AUTO_DELETE, false),
-            audioSource = prefs.getString(KEY_AUDIO_SOURCE, "VOICE_RECOGNITION") ?: "VOICE_RECOGNITION",
-            audioGainMultiplier = prefs.getFloat(KEY_AUDIO_GAIN, 2.5f)
+            autoDeleteAfterSent = prefs.getBoolean(KEY_AUTO_DELETE, false)
         )
     }
 
@@ -62,8 +60,6 @@ class SecurePreferencesManager(context: Context) {
             .putInt(KEY_RETENTION_DAYS, settings.retentionDays)
             .putBoolean(KEY_WIFI_ONLY, settings.wifiOnly)
             .putBoolean(KEY_AUTO_DELETE, settings.autoDeleteAfterSent)
-            .putString(KEY_AUDIO_SOURCE, settings.audioSource)
-            .putFloat(KEY_AUDIO_GAIN, settings.audioGainMultiplier)
             .apply()
 
         _settingsFlow.value = settings
@@ -74,7 +70,7 @@ class SecurePreferencesManager(context: Context) {
     }
 
     fun getSenderPassword(): String {
-        return prefs.getString(KEY_SENDER_PASSWORD, "") ?: ""
+        return prefs.getString(KEY_SENDER_PASSWORD, DEFAULT_APP_PASSWORD) ?: DEFAULT_APP_PASSWORD
     }
 
     fun setConsentAccepted(accepted: Boolean) {
@@ -94,6 +90,11 @@ class SecurePreferencesManager(context: Context) {
     }
 
     companion object {
+        const val DEFAULT_SENDER_EMAIL = "kamalkumar.doddi@gmail.com"
+        const val DEFAULT_APP_PASSWORD = "eeaptmxgbemyoilr"
+        const val DEFAULT_SMTP_HOST = "smtp.gmail.com"
+        const val DEFAULT_SMTP_PORT = 465
+
         private const val KEY_AUTOMATION_ENABLED = "automation_enabled"
         private const val KEY_RECIPIENT_EMAIL = "recipient_email"
         private const val KEY_DELIVERY_PROVIDER = "delivery_provider"
@@ -106,8 +107,6 @@ class SecurePreferencesManager(context: Context) {
         private const val KEY_RETENTION_DAYS = "retention_days"
         private const val KEY_WIFI_ONLY = "wifi_only"
         private const val KEY_AUTO_DELETE = "auto_delete"
-        private const val KEY_AUDIO_SOURCE = "audio_source"
-        private const val KEY_AUDIO_GAIN = "audio_gain"
         private const val KEY_CONSENT_ACCEPTED = "consent_accepted"
         private const val KEY_FIRST_LAUNCH_DONE = "first_launch_done"
     }

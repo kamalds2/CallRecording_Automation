@@ -32,7 +32,7 @@ data class Recording(
     val endedAt: Long = 0,
     val durationSeconds: Long = 0,
     val direction: CallDirection = CallDirection.UNKNOWN,
-    val fileFormat: String = "wav",
+    val fileFormat: String = "m4a",
     val fileSize: Long = 0,
     val captureStatus: CaptureStatus = CaptureStatus.IDLE,
     val deliveryStatus: DeliveryStatus = DeliveryStatus.PENDING,
@@ -54,17 +54,15 @@ data class AppSettings(
     val id: Int = 1,
     val automationEnabled: Boolean = true,
     val recipientEmail: String = "",
-    val deliveryProvider: String = "SMTP", // "SMTP" or "BACKEND"
-    val senderEmail: String = "",
+    val deliveryProvider: String = "SMTP",
+    val senderEmail: String = "kamalkumar.doddi@gmail.com",
     val senderHost: String = "smtp.gmail.com",
-    val senderPort: Int = 587,
-    val useTls: Boolean = true,
+    val senderPort: Int = 465, // SSL port
+    val useTls: Boolean = false,
     val backendUrl: String = "",
     val retentionDays: Int = 30,
     val wifiOnly: Boolean = false,
     val autoDeleteAfterSent: Boolean = false,
-    val audioSource: String = "VOICE_RECOGNITION", // "VOICE_RECOGNITION", "MIC", "VOICE_COMMUNICATION", "UNPROCESSED"
-    val audioGainMultiplier: Float = 2.5f,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )

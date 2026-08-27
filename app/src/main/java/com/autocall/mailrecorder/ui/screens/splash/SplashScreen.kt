@@ -28,8 +28,7 @@ fun SplashScreen(
     LaunchedEffect(Unit) {
         delay(1200)
         val consentAccepted = settingsRepository.isConsentAccepted()
-        val settings = settingsRepository.getSettings()
-        val emailConfigured = settings.recipientEmail.isNotBlank() && settings.senderEmail.isNotBlank()
+        val emailConfigured = settings.recipientEmail.isNotBlank()
 
         when {
             !consentAccepted -> {

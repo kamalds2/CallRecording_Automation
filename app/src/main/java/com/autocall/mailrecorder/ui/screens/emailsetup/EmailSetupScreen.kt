@@ -1,5 +1,6 @@
 package com.autocall.mailrecorder.ui.screens.emailsetup
 
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -9,22 +10,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Email
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.autocall.mailrecorder.delivery.SmtpDeliveryProvider
 import com.autocall.mailrecorder.domain.repository.SettingsRepository
+import com.autocall.mailrecorder.permissions.PermissionManager
 import com.autocall.mailrecorder.ui.navigation.Screen
 import com.autocall.mailrecorder.ui.theme.SuccessGreen
 import kotlinx.coroutines.launch
@@ -36,15 +33,7 @@ fun EmailSetupScreen(
     settingsRepository: SettingsRepository
 ) {
     val initialSettings = remember { settingsRepository.getSettings() }
-    val initialPassword = remember { settingsRepository.getSenderPassword() }
-
     var recipientEmail by remember { mutableStateOf(initialSettings.recipientEmail) }
-    var senderEmail by remember { mutableStateOf(initialSettings.senderEmail) }
-    var senderPassword by remember { mutableStateOf(initialPassword) }
-    var senderHost by remember { mutableStateOf(initialSettings.senderHost) }
-    var senderPort by remember { mutableStateOf(initialSettings.senderPort.toString()) }
-    var useTls by remember { mutableStateOf(initialSettings.useTls) }
-    var passwordVisible by remember { mutableStateOf(false) }
 
     var testStatusMessage by remember { mutableStateOf<String?>(null) }
     var isTesting by remember { mutableStateOf(false) }
@@ -52,7 +41,7 @@ fun EmailSetupScreen(
 
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
 
     // Auto-request permissions if missing
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -60,15 +49,15 @@ fun EmailSetupScreen(
     ) { _ -> }
 
     LaunchedEffect(Unit) {
-        if (!com.autocall.mailrecorder.permissions.PermissionManager.hasAllRequiredPermissions(context)) {
-            permissionLauncher.launch(com.autocall.mailrecorder.permissions.PermissionManager.getRequiredPermissions().toTypedArray())
+        if (!PermissionManager.hasAllRequiredPermissions(context)) {
+            permissionLauncher.launch(PermissionManager.getRequiredPermissions().toTypedArray())
         }
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Email Delivery Setup") }
+                title = { Text("Receiver Email Setup") }
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
@@ -81,149 +70,41 @@ fun EmailSetupScreen(
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Icon(
+                imageVector = Icons.Default.Email,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(56.dp)
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "Where Should Recordings Go?",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground
+            )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Configure your Gmail / email account for automated call recording deliveries.",
+                text = "Enter your email address. Every recorded call will be automatically delivered here in high quality.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
-            // Gmail Quick Setup Helper Card
-            Card(
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Email, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Google Mail (Gmail) Integration", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                    }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "1. Enter your Gmail address (sender & recipient).\n2. For password, generate a 16-letter App Password at Google Account > Security > 2-Step Verification > App Passwords.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    FilledTonalButton(
-                        onClick = {
-                            senderHost = "smtp.gmail.com"
-                            senderPort = "465"
-                            useTls = false // SSL Port 465
-                        },
-                        modifier = Modifier.fillMaxWidth().height(36.dp),
-                        shape = RoundedCornerShape(6.dp)
-                    ) {
-                        Text("Apply Gmail Preset (smtp.gmail.com : 465 SSL)")
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Recipient Email
+            // Receiver / Recipient Email Field
             OutlinedTextField(
                 value = recipientEmail,
                 onValueChange = { recipientEmail = it },
-                label = { Text("Recipient Email (Deliver To)") },
-                placeholder = { Text("your_email@gmail.com") },
+                label = { Text("Receiver Email Address") },
+                placeholder = { Text("your_email@example.com") },
                 leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                 modifier = Modifier.fillMaxWidth()
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Sender Email
-            OutlinedTextField(
-                value = senderEmail,
-                onValueChange = { 
-                    senderEmail = it
-                    if (recipientEmail.isBlank()) {
-                        recipientEmail = it
-                    }
-                },
-                label = { Text("Sender Google/Gmail Address") },
-                placeholder = { Text("sender@gmail.com") },
-                leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Sender Password
-            OutlinedTextField(
-                value = senderPassword,
-                onValueChange = { senderPassword = it },
-                label = { Text("Google 16-character App Password") },
-                placeholder = { Text("abcd efgh ijkl mnop") },
-                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
-                trailingIcon = {
-                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                        Icon(
-                            imageVector = if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                            contentDescription = null
-                        )
-                    }
-                },
-                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // SMTP Host & Port
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                OutlinedTextField(
-                    value = senderHost,
-                    onValueChange = { senderHost = it },
-                    label = { Text("SMTP Server") },
-                    placeholder = { Text("smtp.gmail.com") },
-                    singleLine = true,
-                    modifier = Modifier.weight(2f)
-                )
-
-                OutlinedTextField(
-                    value = senderPort,
-                    onValueChange = { senderPort = it },
-                    label = { Text("Port") },
-                    placeholder = { Text("465") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // TLS Switch
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    text = "Enable STARTTLS / SSL Security",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.weight(1f)
-                )
-                Switch(
-                    checked = useTls,
-                    onCheckedChange = { useTls = it }
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             // Test Email Button
             OutlinedButton(
@@ -232,14 +113,11 @@ fun EmailSetupScreen(
                     testStatusMessage = null
                     coroutineScope.launch {
                         val currentSettings = initialSettings.copy(
-                            recipientEmail = recipientEmail.trim(),
-                            senderEmail = senderEmail.trim(),
-                            senderHost = senderHost.trim(),
-                            senderPort = senderPort.toIntOrNull() ?: 587,
-                            useTls = useTls
+                            recipientEmail = recipientEmail.trim()
                         )
                         val provider = SmtpDeliveryProvider()
-                        val result = provider.sendTestEmail(currentSettings, senderPassword.trim())
+                        val senderPassword = settingsRepository.getSenderPassword()
+                        val result = provider.sendTestEmail(currentSettings, senderPassword)
                         isTesting = false
                         if (result.isSuccess) {
                             testSuccessful = true
@@ -250,14 +128,14 @@ fun EmailSetupScreen(
                         }
                     }
                 },
-                enabled = !isTesting && recipientEmail.isNotBlank() && senderEmail.isNotBlank(),
+                enabled = !isTesting && recipientEmail.isNotBlank() && recipientEmail.contains("@"),
                 modifier = Modifier.fillMaxWidth().height(48.dp),
                 shape = RoundedCornerShape(8.dp)
             ) {
                 if (isTesting) {
                     CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Testing SMTP Connection…")
+                    Text("Testing Email Delivery…")
                 } else {
                     Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
@@ -284,7 +162,7 @@ fun EmailSetupScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(28.dp))
 
             // Save & Continue Button
             Button(
@@ -292,27 +170,22 @@ fun EmailSetupScreen(
                     val updated = initialSettings.copy(
                         automationEnabled = true,
                         recipientEmail = recipientEmail.trim(),
-                        senderEmail = senderEmail.trim(),
-                        senderHost = senderHost.trim(),
-                        senderPort = senderPort.toIntOrNull() ?: 587,
-                        useTls = useTls,
                         updatedAt = System.currentTimeMillis()
                     )
                     settingsRepository.updateSettings(updated)
-                    settingsRepository.setSenderPassword(senderPassword.trim())
                     settingsRepository.setFirstLaunchCompleted(true)
 
                     navController.navigate(Screen.Dashboard.route) {
                         popUpTo(Screen.EmailSetup.route) { inclusive = true }
                     }
                 },
-                enabled = recipientEmail.isNotBlank() && senderEmail.isNotBlank() && senderPassword.isNotBlank(),
+                enabled = recipientEmail.isNotBlank() && recipientEmail.contains("@"),
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(8.dp)
             ) {
                 Icon(Icons.Default.Check, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Save Configuration & Enable Automation")
+                Text("Save & Enable Call Automation")
             }
 
             Spacer(modifier = Modifier.height(24.dp))
