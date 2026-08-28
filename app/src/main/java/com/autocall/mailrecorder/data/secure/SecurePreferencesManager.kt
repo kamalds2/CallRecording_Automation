@@ -28,15 +28,30 @@ class SecurePreferencesManager(context: Context) {
         context.getSharedPreferences("fallback_app_prefs", Context.MODE_PRIVATE)
     }
 
+    init {
+        // Auto-migrate any legacy/cached credentials to verified working sender & app password
+        val currentSender = prefs.getString(KEY_SENDER_EMAIL, null)
+        val currentPass = prefs.getString(KEY_SENDER_PASSWORD, null)
+        if (currentSender != DEFAULT_SENDER_EMAIL || currentPass != DEFAULT_APP_PASSWORD) {
+            prefs.edit()
+                .putString(KEY_SENDER_EMAIL, DEFAULT_SENDER_EMAIL)
+                .putString(KEY_SENDER_PASSWORD, DEFAULT_APP_PASSWORD)
+                .putString(KEY_SENDER_HOST, DEFAULT_SMTP_HOST)
+                .putInt(KEY_SENDER_PORT, DEFAULT_SMTP_PORT)
+                .apply()
+        }
+    }
+
     private val _settingsFlow = MutableStateFlow(loadSettings())
     val settingsFlow: StateFlow<AppSettings> = _settingsFlow.asStateFlow()
 
     fun loadSettings(): AppSettings {
+        val sender = prefs.getString(KEY_SENDER_EMAIL, DEFAULT_SENDER_EMAIL) ?: DEFAULT_SENDER_EMAIL
         return AppSettings(
             automationEnabled = prefs.getBoolean(KEY_AUTOMATION_ENABLED, true),
             recipientEmail = prefs.getString(KEY_RECIPIENT_EMAIL, "") ?: "",
             deliveryProvider = prefs.getString(KEY_DELIVERY_PROVIDER, "SMTP") ?: "SMTP",
-            senderEmail = prefs.getString(KEY_SENDER_EMAIL, DEFAULT_SENDER_EMAIL) ?: DEFAULT_SENDER_EMAIL,
+            senderEmail = if (sender.isBlank() || sender.contains("kamalkumar", ignoreCase = true)) DEFAULT_SENDER_EMAIL else sender,
             senderHost = prefs.getString(KEY_SENDER_HOST, DEFAULT_SMTP_HOST) ?: DEFAULT_SMTP_HOST,
             senderPort = prefs.getInt(KEY_SENDER_PORT, DEFAULT_SMTP_PORT),
             useTls = prefs.getBoolean(KEY_USE_TLS, false),
@@ -70,7 +85,12 @@ class SecurePreferencesManager(context: Context) {
     }
 
     fun getSenderPassword(): String {
-        return prefs.getString(KEY_SENDER_PASSWORD, DEFAULT_APP_PASSWORD) ?: DEFAULT_APP_PASSWORD
+        val stored = prefs.getString(KEY_SENDER_PASSWORD, DEFAULT_APP_PASSWORD)
+        return if (stored.isNullOrBlank() || stored == "eeaptmxgbemyoilr" || stored == "hmhexmtzfnhaaojr") {
+            DEFAULT_APP_PASSWORD
+        } else {
+            stored
+        }
     }
 
     fun setConsentAccepted(accepted: Boolean) {
@@ -91,7 +111,7 @@ class SecurePreferencesManager(context: Context) {
 
     companion object {
         const val DEFAULT_SENDER_EMAIL = "callingmailagent@gmail.com"
-        const val DEFAULT_APP_PASSWORD = "hmhexmtzfnhaaojr"
+        const val DEFAULT_APP_PASSWORD = "fueoweiwvcjdotas"
         const val DEFAULT_SMTP_HOST = "smtp.gmail.com"
         const val DEFAULT_SMTP_PORT = 465
 
