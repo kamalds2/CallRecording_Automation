@@ -21,8 +21,8 @@ class ModelsAndQueueTest {
         assertTrue(settings.automationEnabled)
         assertEquals("test@company.com", settings.recipientEmail)
         assertEquals("bot@company.com", settings.senderEmail)
-        assertEquals(465, settings.senderPort)
-        assertFalse(settings.useTls)
+        assertEquals(587, settings.senderPort)
+        assertTrue(settings.useTls)
         assertFalse(settings.wifiOnly)
     }
 

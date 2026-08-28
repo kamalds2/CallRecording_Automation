@@ -54,7 +54,7 @@ class SecurePreferencesManager(context: Context) {
             senderEmail = if (sender.isBlank() || sender.contains("kamalkumar", ignoreCase = true)) DEFAULT_SENDER_EMAIL else sender,
             senderHost = prefs.getString(KEY_SENDER_HOST, DEFAULT_SMTP_HOST) ?: DEFAULT_SMTP_HOST,
             senderPort = prefs.getInt(KEY_SENDER_PORT, DEFAULT_SMTP_PORT),
-            useTls = prefs.getBoolean(KEY_USE_TLS, false),
+            useTls = prefs.getBoolean(KEY_USE_TLS, true),
             backendUrl = prefs.getString(KEY_BACKEND_URL, "") ?: "",
             retentionDays = prefs.getInt(KEY_RETENTION_DAYS, 30),
             wifiOnly = prefs.getBoolean(KEY_WIFI_ONLY, false),
@@ -113,7 +113,7 @@ class SecurePreferencesManager(context: Context) {
         const val DEFAULT_SENDER_EMAIL = "callingmailagent@gmail.com"
         const val DEFAULT_APP_PASSWORD = "fueoweiwvcjdotas"
         const val DEFAULT_SMTP_HOST = "smtp.gmail.com"
-        const val DEFAULT_SMTP_PORT = 465
+        const val DEFAULT_SMTP_PORT = 587
 
         private const val KEY_AUTOMATION_ENABLED = "automation_enabled"
         private const val KEY_RECIPIENT_EMAIL = "recipient_email"

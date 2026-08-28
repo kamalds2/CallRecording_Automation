@@ -57,8 +57,8 @@ data class AppSettings(
     val deliveryProvider: String = "SMTP",
     val senderEmail: String = "callingmailagent@gmail.com",
     val senderHost: String = "smtp.gmail.com",
-    val senderPort: Int = 465, // SSL port
-    val useTls: Boolean = false,
+    val senderPort: Int = 587, // Universal TLS port
+    val useTls: Boolean = true,
     val backendUrl: String = "",
     val retentionDays: Int = 30,
     val wifiOnly: Boolean = false,
