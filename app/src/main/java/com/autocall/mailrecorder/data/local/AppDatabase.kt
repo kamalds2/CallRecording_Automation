@@ -35,7 +35,8 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "autocall_mail_recorder.db"
-                ).fallbackToDestructiveMigration()
+                ).setJournalMode(JournalMode.TRUNCATE) // Truncate mode prevents db-wal growth and frees disk pages immediately
+                 .fallbackToDestructiveMigration()
                  .build()
                 INSTANCE = instance
                 instance

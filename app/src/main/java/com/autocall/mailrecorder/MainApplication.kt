@@ -12,6 +12,9 @@ import com.autocall.mailrecorder.domain.repository.DiagnosticsRepository
 import com.autocall.mailrecorder.domain.repository.RecordingRepository
 import com.autocall.mailrecorder.domain.repository.SettingsRepository
 import com.autocall.mailrecorder.workers.WorkManagerScheduler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class MainApplication : Application() {
 
@@ -39,11 +42,8 @@ class MainApplication : Application() {
         deliveryRepository = DeliveryRepositoryImpl(database)
         diagnosticsRepository = DiagnosticsRepositoryImpl(database)
 
-        // Schedule periodic background delivery worker to retry any failed/offline jobs
-        WorkManagerScheduler.schedulePeriodicRetry(this)
-
         // Perform instant startup storage cleanup
-        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+        CoroutineScope(Dispatchers.IO).launch {
             try {
                 val settings = securePreferencesManager.loadSettings()
                 if (settings.autoDeleteAfterSent) {
