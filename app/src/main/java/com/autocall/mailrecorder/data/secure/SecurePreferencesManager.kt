@@ -58,7 +58,7 @@ class SecurePreferencesManager(context: Context) {
             backendUrl = prefs.getString(KEY_BACKEND_URL, "") ?: "",
             retentionDays = prefs.getInt(KEY_RETENTION_DAYS, 30),
             wifiOnly = prefs.getBoolean(KEY_WIFI_ONLY, false),
-            autoDeleteAfterSent = prefs.getBoolean(KEY_AUTO_DELETE, false)
+            autoDeleteAfterSent = prefs.getBoolean(KEY_AUTO_DELETE, true)
         )
     }
 

@@ -199,8 +199,9 @@ class CallRecordingService : Service() {
                         // Dispatch single reliable email delivery through WorkManager
                         WorkManagerScheduler.scheduleDelivery(this@CallRecordingService, settings.wifiOnly)
 
-                        // Purge old recordings according to retention policy
+                        // Purge old recordings according to retention policy and cleanup cache
                         recordingRepository.purgeOldRecordings(settings.retentionDays)
+                        RecordingEngineFactory.cleanupOrphanedRecordings(this@CallRecordingService)
                     } else {
                         val error = stopResult.exceptionOrNull()?.message ?: "Stop recording failed"
                         diagnosticsRepository.logEvent("RECORDING", "Failed to finalize audio file: $error")

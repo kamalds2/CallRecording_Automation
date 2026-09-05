@@ -62,7 +62,7 @@ data class AppSettings(
     val backendUrl: String = "",
     val retentionDays: Int = 30,
     val wifiOnly: Boolean = false,
-    val autoDeleteAfterSent: Boolean = false,
+    val autoDeleteAfterSent: Boolean = true,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )
