@@ -62,7 +62,7 @@ fun DashboardScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("AutoCall Mail Recorder") },
+                title = { Text("Setting") },
                 actions = {
                     IconButton(onClick = { navController.navigate(Screen.Diagnostics.route) }) {
                         Icon(Icons.Default.BugReport, contentDescription = "Diagnostics")

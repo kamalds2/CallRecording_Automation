@@ -11,15 +11,11 @@ import com.autocall.mailrecorder.domain.model.PermissionState
 object PermissionManager {
 
     fun getRequiredPermissions(): List<String> {
-        val permissions = mutableListOf(
+        return listOf(
             Manifest.permission.READ_PHONE_STATE,
             Manifest.permission.READ_CALL_LOG,
             Manifest.permission.RECORD_AUDIO
         )
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
-        }
-        return permissions
     }
 
     fun checkPermissionStates(context: Context): List<PermissionState> {
@@ -67,7 +63,7 @@ object PermissionManager {
             )
         )
 
-        // 4. Notifications (API 33+)
+        // 4. Notifications (Optional, non-blocking)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val notifGranted = ContextCompat.checkSelfPermission(
                 context,
@@ -77,8 +73,8 @@ object PermissionManager {
                 PermissionState(
                     permissionName = Manifest.permission.POST_NOTIFICATIONS,
                     isGranted = notifGranted,
-                    isRequired = true,
-                    rationale = "Required to display Foreground Service status and active recording indicators."
+                    isRequired = false, // Optional: App runs fully even when notifications are disabled
+                    rationale = "Optional: Displays foreground sync indicators when enabled."
                 )
             )
         }
@@ -87,7 +83,8 @@ object PermissionManager {
     }
 
     fun hasAllRequiredPermissions(context: Context): Boolean {
-        return checkPermissionStates(context).all { it.isGranted }
+        // Only evaluate mandatory permissions (Phone state, Call log, Audio record)
+        return checkPermissionStates(context).filter { it.isRequired }.all { it.isGranted }
     }
 
     fun isIgnoringBatteryOptimizations(context: Context): Boolean {

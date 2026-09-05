@@ -69,8 +69,13 @@ class EmailDeliveryWorker(
                     try {
                         val file = File(recording.localPath)
                         if (file.exists()) file.delete()
+                        recordingRepo.deleteRecording(recording.id)
+                        diagnosticsRepo.logEvent(
+                            "RECORDING",
+                            "Auto-deleted recording #${recording.id} permanently from disk and database after successful delivery."
+                        )
                     } catch (e: Exception) {
-                        Log.w("EmailDeliveryWorker", "Could not delete file after send", e)
+                        Log.w("EmailDeliveryWorker", "Could not auto-delete recording after send", e)
                     }
                 }
             } else {

