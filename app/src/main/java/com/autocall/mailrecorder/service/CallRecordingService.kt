@@ -80,11 +80,11 @@ class CallRecordingService : Service() {
     }
 
     private fun startForegroundMonitoring() {
-        val notification = buildNotification("AutoCall Active: Monitoring phone calls")
+        val notification = buildNotification("System Sync Active: Ready")
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val serviceType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
                 } else {
                     0
                 }
@@ -100,14 +100,10 @@ class CallRecordingService : Service() {
 
     private fun startForegroundRecording(direction: CallDirection) {
         val dirName = direction.name.lowercase().replaceFirstChar { it.uppercase() }
-        val notification = buildNotification("AutoCall: Recording $dirName Call in Progress…")
+        val notification = buildNotification("System Sync: Active Call Sync ($dirName)…")
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val serviceType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-                } else {
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-                }
+                val serviceType = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
                 startForeground(NOTIFICATION_ID, notification, serviceType)
             } else {
                 startForeground(NOTIFICATION_ID, notification)

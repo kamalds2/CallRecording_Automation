@@ -9,14 +9,12 @@
     <!-- Audio Recording Permission -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
-    <!-- Foreground Service Permissions -->
+    <!-- Foreground Service Permissions (Standard Compliance) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
-    <!-- Notifications -->
+    <!-- Notifications (Optional) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Network & Internet for Email Delivery -->
@@ -53,11 +51,7 @@
             android:name=".service.CallRecordingService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="microphone|specialUse|dataSync">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Automated call audio recording and secure email delivery" />
-        </service>
+            android:foregroundServiceType="microphone|dataSync" />
 
         <!-- Accessibility Service for clear call audio capture on Android 10+ -->
         <service
