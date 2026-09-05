@@ -34,6 +34,9 @@ interface RecordingDao {
 
     @Query("DELETE FROM recordings WHERE startedAt < :cutoffTimestamp")
     suspend fun deleteRecordingsOlderThan(cutoffTimestamp: Long)
+
+    @Query("DELETE FROM recordings WHERE deliveryStatus = 'SENT'")
+    suspend fun deleteSentRecordings()
 }
 
 @Dao
@@ -55,15 +58,21 @@ interface DeliveryJobDao {
 
     @Query("DELETE FROM delivery_jobs WHERE recordingId = :recordingId")
     suspend fun deleteJobByRecordingId(recordingId: Long)
+
+    @Query("DELETE FROM delivery_jobs WHERE recordingId NOT IN (SELECT id FROM recordings)")
+    suspend fun purgeOrphanedJobs()
 }
 
 @Dao
 interface DiagnosticEventDao {
-    @Query("SELECT * FROM diagnostic_events ORDER BY timestamp DESC LIMIT 100")
+    @Query("SELECT * FROM diagnostic_events ORDER BY timestamp DESC LIMIT 30")
     fun getAllEventsFlow(): Flow<List<DiagnosticEventEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertEvent(event: DiagnosticEventEntity): Long
+
+    @Query("DELETE FROM diagnostic_events WHERE id NOT IN (SELECT id FROM diagnostic_events ORDER BY timestamp DESC LIMIT 30)")
+    suspend fun trimOldEvents()
 
     @Query("DELETE FROM diagnostic_events")
     suspend fun clearAll()

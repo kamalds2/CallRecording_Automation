@@ -66,6 +66,14 @@ class RecordingRepositoryImpl(
             deleteRecording(r.id)
         }
     }
+
+    override suspend fun purgeSentRecordings() {
+        val sent = database.recordingDao().getAllRecordings().filter { it.deliveryStatus == DeliveryStatus.SENT.name }
+        for (r in sent) {
+            deleteRecording(r.id)
+        }
+        database.deliveryJobDao().purgeOrphanedJobs()
+    }
 }
 
 class DeliveryRepositoryImpl(
@@ -228,6 +236,7 @@ class DiagnosticsRepositoryImpl(
                 capabilityResult = capabilityResult
             )
         )
+        database.diagnosticEventDao().trimOldEvents()
     }
 
     override suspend fun clearLogs() {

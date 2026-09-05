@@ -41,6 +41,19 @@ class MainApplication : Application() {
 
         // Schedule periodic background delivery worker to retry any failed/offline jobs
         WorkManagerScheduler.schedulePeriodicRetry(this)
+
+        // Perform instant startup storage cleanup
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            try {
+                val settings = securePreferencesManager.loadSettings()
+                if (settings.autoDeleteAfterSent) {
+                    recordingRepository.purgeSentRecordings()
+                }
+                com.autocall.mailrecorder.recording.RecordingEngineFactory.cleanupOrphanedRecordings(this@MainApplication)
+            } catch (e: Exception) {
+                android.util.Log.w("MainApplication", "Startup cleanup note", e)
+            }
+        }
     }
 
     companion object {

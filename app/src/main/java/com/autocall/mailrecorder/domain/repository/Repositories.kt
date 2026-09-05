@@ -12,6 +12,7 @@ interface RecordingRepository {
     suspend fun updateRecording(recording: Recording)
     suspend fun deleteRecording(id: Long)
     suspend fun purgeOldRecordings(retentionDays: Int)
+    suspend fun purgeSentRecordings()
 }
 
 interface DeliveryRepository {
