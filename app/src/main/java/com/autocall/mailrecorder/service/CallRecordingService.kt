@@ -9,6 +9,9 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.telephony.PhoneStateListener
+import android.telephony.TelephonyCallback
+import android.telephony.TelephonyManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.autocall.mailrecorder.R
@@ -24,10 +27,7 @@ import com.autocall.mailrecorder.domain.model.Recording
 import com.autocall.mailrecorder.recording.RecordingEngine
 import com.autocall.mailrecorder.recording.RecordingEngineFactory
 import com.autocall.mailrecorder.workers.WorkManagerScheduler
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
 import java.io.File
 
 class CallRecordingService : Service() {
@@ -37,12 +37,18 @@ class CallRecordingService : Service() {
     private var currentRecordingFile: File? = null
     private var recordingStartTime: Long = 0
     private var currentDirection: CallDirection = CallDirection.UNKNOWN
+    private var callStatePollingJob: Job? = null
 
     private lateinit var database: AppDatabase
     private lateinit var recordingRepository: RecordingRepositoryImpl
     private lateinit var deliveryRepository: DeliveryRepositoryImpl
     private lateinit var diagnosticsRepository: DiagnosticsRepositoryImpl
     private lateinit var securePreferencesManager: SecurePreferencesManager
+    private var telephonyManager: TelephonyManager? = null
+
+    // Direct in-process telephony listener
+    private var legacyPhoneStateListener: PhoneStateListener? = null
+    private var telephonyCallback: TelephonyCallback? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -51,8 +57,10 @@ class CallRecordingService : Service() {
         deliveryRepository = DeliveryRepositoryImpl(database)
         diagnosticsRepository = DiagnosticsRepositoryImpl(database)
         securePreferencesManager = SecurePreferencesManager(this)
+        telephonyManager = getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
 
         createNotificationChannel()
+        registerTelephonyListener()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -77,6 +85,43 @@ class CallRecordingService : Service() {
         }
 
         return START_STICKY
+    }
+
+    @Suppress("DEPRECATION")
+    private fun registerTelephonyListener() {
+        val tm = telephonyManager ?: return
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val callback = object : TelephonyCallback(), TelephonyCallback.CallStateListener {
+                    override fun onCallStateChanged(state: Int) {
+                        handleInCallState(state)
+                    }
+                }
+                tm.registerTelephonyCallback(mainExecutor, callback)
+                telephonyCallback = callback
+            } else {
+                val listener = object : PhoneStateListener() {
+                    @Deprecated("Deprecated in Java")
+                    override fun onCallStateChanged(state: Int, phoneNumber: String?) {
+                        handleInCallState(state)
+                    }
+                }
+                tm.listen(listener, PhoneStateListener.LISTEN_CALL_STATE)
+                legacyPhoneStateListener = listener
+            }
+        } catch (e: Exception) {
+            Log.w("CallRecordingService", "Error registering direct telephony listener: ${e.message}")
+        }
+    }
+
+    private fun handleInCallState(state: Int) {
+        if (state == TelephonyManager.CALL_STATE_IDLE) {
+            // Immediate stop when phone call ends
+            if (recordingEngine?.isRecording() == true) {
+                Log.d("CallRecordingService", "Direct Telephony detected CALL_STATE_IDLE. Stopping recording immediately.")
+                stopRecordingSession()
+            }
+        }
     }
 
     private fun startForegroundMonitoring() {
@@ -148,10 +193,23 @@ class CallRecordingService : Service() {
                         "RECORDING",
                         "Started call audio capture with ${engine.name} to ${targetFile.name}"
                     )
+
+                    // Active polling watchdog: if telephony state becomes IDLE, immediately stop recording
+                    callStatePollingJob?.cancel()
+                    callStatePollingJob = serviceScope.launch {
+                        while (isActive && recordingEngine?.isRecording() == true) {
+                            delay(2000)
+                            val currentState = telephonyManager?.callState ?: TelephonyManager.CALL_STATE_IDLE
+                            if (currentState == TelephonyManager.CALL_STATE_IDLE) {
+                                Log.d("CallRecordingService", "Watchdog detected CALL_STATE_IDLE. Finalizing recording.")
+                                stopRecordingSession()
+                                break
+                            }
+                        }
+                    }
                 } else {
                     val error = result.exceptionOrNull()?.message ?: "Unknown recording start error"
                     diagnosticsRepository.logEvent("RECORDING", "Failed to start audio capture: $error")
-                    // revert notification to monitoring
                     startForegroundMonitoring()
                 }
             } catch (e: Exception) {
@@ -162,6 +220,9 @@ class CallRecordingService : Service() {
     }
 
     private fun stopRecordingSession() {
+        callStatePollingJob?.cancel()
+        callStatePollingJob = null
+
         serviceScope.launch {
             try {
                 val engine = recordingEngine
@@ -212,7 +273,6 @@ class CallRecordingService : Service() {
             } finally {
                 recordingEngine = null
                 currentRecordingFile = null
-                // Return to active monitoring state instead of killing the service
                 startForegroundMonitoring()
             }
         }
@@ -241,6 +301,23 @@ class CallRecordingService : Service() {
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onDestroy() {
+        super.onDestroy()
+        callStatePollingJob?.cancel()
+        recordingEngine?.stopRecording()
+        recordingEngine = null
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                telephonyCallback?.let { telephonyManager?.unregisterTelephonyCallback(it) }
+            } else {
+                legacyPhoneStateListener?.let { telephonyManager?.listen(it, PhoneStateListener.LISTEN_NONE) }
+            }
+        } catch (e: Exception) {
+            // ignore
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

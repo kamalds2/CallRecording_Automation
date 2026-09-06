@@ -70,6 +70,7 @@ class EmailDeliveryWorker(
                         val file = File(recording.localPath)
                         if (file.exists()) file.delete()
                         recordingRepo.deleteRecording(recording.id)
+                        com.autocall.mailrecorder.recording.RecordingEngineFactory.cleanupOrphanedRecordings(context)
                         diagnosticsRepo.logEvent(
                             "RECORDING",
                             "Auto-deleted recording #${recording.id} permanently from disk and database after successful delivery."
