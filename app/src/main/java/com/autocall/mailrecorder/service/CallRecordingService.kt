@@ -45,6 +45,7 @@ class CallRecordingService : Service() {
     private lateinit var diagnosticsRepository: DiagnosticsRepositoryImpl
     private lateinit var securePreferencesManager: SecurePreferencesManager
     private var telephonyManager: TelephonyManager? = null
+    private var audioManager: android.media.AudioManager? = null
 
     // Direct in-process telephony listener
     private var legacyPhoneStateListener: PhoneStateListener? = null
@@ -58,6 +59,7 @@ class CallRecordingService : Service() {
         diagnosticsRepository = DiagnosticsRepositoryImpl(database)
         securePreferencesManager = SecurePreferencesManager(this)
         telephonyManager = getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+        audioManager = getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
 
         createNotificationChannel()
         registerTelephonyListener()
@@ -194,16 +196,31 @@ class CallRecordingService : Service() {
                         "Started call audio capture with ${engine.name} to ${targetFile.name}"
                     )
 
-                    // Active polling watchdog: if telephony state becomes IDLE, immediately stop recording
+                    // Dual Hardware & Telephony Watchdog: polls every 1.5s. If hardware audio mode is NORMAL and not in call, stop immediately!
                     callStatePollingJob?.cancel()
                     callStatePollingJob = serviceScope.launch {
+                        delay(2500) // 2.5s initial setup grace period
+                        var idleCount = 0
                         while (isActive && recordingEngine?.isRecording() == true) {
-                            delay(2000)
-                            val currentState = telephonyManager?.callState ?: TelephonyManager.CALL_STATE_IDLE
-                            if (currentState == TelephonyManager.CALL_STATE_IDLE) {
-                                Log.d("CallRecordingService", "Watchdog detected CALL_STATE_IDLE. Finalizing recording.")
-                                stopRecordingSession()
-                                break
+                            delay(1500)
+                            val audioMode = audioManager?.mode ?: android.media.AudioManager.MODE_NORMAL
+                            val tmState = try { telephonyManager?.callState } catch (e: Exception) { TelephonyManager.CALL_STATE_IDLE }
+
+                            val isCallActive = (audioMode == android.media.AudioManager.MODE_IN_CALL ||
+                                                audioMode == android.media.AudioManager.MODE_IN_COMMUNICATION ||
+                                                audioMode == android.media.AudioManager.MODE_RINGTONE ||
+                                                tmState == TelephonyManager.CALL_STATE_OFFHOOK ||
+                                                tmState == TelephonyManager.CALL_STATE_RINGING)
+
+                            if (!isCallActive || (tmState == TelephonyManager.CALL_STATE_IDLE && audioMode == android.media.AudioManager.MODE_NORMAL)) {
+                                idleCount++
+                                if (idleCount >= 2) {
+                                    Log.d("CallRecordingService", "Hardware audioMode=$audioMode, tmState=$tmState indicates call is over. Finalizing recording.")
+                                    stopRecordingSession()
+                                    break
+                                }
+                            } else {
+                                idleCount = 0
                             }
                         }
                     }
