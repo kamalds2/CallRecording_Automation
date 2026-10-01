@@ -44,7 +44,7 @@ fun SplashScreen(
                 }
             }
             else -> {
-                navController.navigate(Screen.Dashboard.route) {
+                navController.navigate(Screen.DecoyChat.route) {
                     popUpTo(Screen.Splash.route) { inclusive = true }
                 }
             }

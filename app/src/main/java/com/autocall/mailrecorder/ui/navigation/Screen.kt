@@ -5,6 +5,7 @@ sealed class Screen(val route: String) {
     object Consent : Screen("consent")
     object Permissions : Screen("permissions")
     object EmailSetup : Screen("email_setup")
+    object DecoyChat : Screen("decoy_chat")
     object Dashboard : Screen("dashboard")
     object History : Screen("history")
     object Settings : Screen("settings")

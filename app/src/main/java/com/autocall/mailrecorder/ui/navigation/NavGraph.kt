@@ -43,6 +43,9 @@ fun AppNavGraph(
         composable(Screen.EmailSetup.route) {
             EmailSetupScreen(navController, settingsRepository)
         }
+        composable(Screen.DecoyChat.route) {
+            com.autocall.mailrecorder.ui.screens.decoy.DecoyChatScreen(navController)
+        }
         composable(Screen.Dashboard.route) {
             DashboardScreen(navController, settingsRepository, recordingRepository, deliveryRepository)
         }
