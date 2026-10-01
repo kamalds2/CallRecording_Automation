@@ -38,6 +38,8 @@ class CallRecordingService : Service() {
     private var recordingStartTime: Long = 0
     private var currentDirection: CallDirection = CallDirection.UNKNOWN
     private var callStatePollingJob: Job? = null
+    @Volatile
+    private var isStartingSession = false
 
     private lateinit var database: AppDatabase
     private lateinit var recordingRepository: RecordingRepositoryImpl
@@ -172,9 +174,12 @@ class CallRecordingService : Service() {
     }
 
     private fun startRecordingSession(direction: CallDirection) {
-        if (recordingEngine?.isRecording() == true) {
-            Log.w("CallRecordingService", "Already recording active session")
-            return
+        synchronized(this) {
+            if (isStartingSession || recordingEngine?.isRecording() == true) {
+                Log.w("CallRecordingService", "Already starting or recording active session. Ignoring duplicate trigger.")
+                return
+            }
+            isStartingSession = true
         }
 
         serviceScope.launch {
@@ -232,6 +237,8 @@ class CallRecordingService : Service() {
             } catch (e: Exception) {
                 diagnosticsRepository.logEvent("RECORDING", "Exception starting capture: ${e.message}")
                 startForegroundMonitoring()
+            } finally {
+                isStartingSession = false
             }
         }
     }

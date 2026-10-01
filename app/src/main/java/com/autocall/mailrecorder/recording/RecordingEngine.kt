@@ -30,157 +30,171 @@ class RobustAudioRecordEngine(
     override val name: String = "Robust AudioRecord (16kHz PCM WAV with Voice Booster)"
     override val fileExtension: String = "wav"
 
-    private var audioRecord: AudioRecord? = null
-    private var recordingThread: Thread? = null
     private var currentOutputFile: File? = null
-
-    @Volatile
-    private var recording = false
 
     // 16 kHz HD Voice sampling rate (standard telecom voice frequency, highly optimized storage)
     private val sampleRate = 16000
     private val channelConfig = AudioFormat.CHANNEL_IN_MONO
     private val audioFormat = AudioFormat.ENCODING_PCM_16BIT
 
+    companion object {
+        private val globalLock = Any()
+
+        @Volatile
+        private var globalAudioRecord: AudioRecord? = null
+
+        @Volatile
+        private var globalRecordingThread: Thread? = null
+
+        @Volatile
+        private var isGloballyRecording = false
+
+        fun forceStopAll() {
+            synchronized(globalLock) {
+                isGloballyRecording = false
+                try {
+                    globalAudioRecord?.stop()
+                } catch (e: Exception) {
+                    Log.w("AudioRecordEngine", "forceStopAll: audioRecord stop error", e)
+                }
+                try {
+                    globalAudioRecord?.release()
+                } catch (e: Exception) {
+                    Log.w("AudioRecordEngine", "forceStopAll: audioRecord release error", e)
+                }
+                globalAudioRecord = null
+                globalRecordingThread?.interrupt()
+                globalRecordingThread = null
+            }
+        }
+    }
+
     override fun startRecording(outputFile: File): Result<Unit> {
-        return try {
-            // Stop any dangling previous recording session safely
-            stopRecording()
+        return synchronized(globalLock) {
+            try {
+                // Force stop any dangling or previous recording thread immediately
+                forceStopAll()
 
-            currentOutputFile = outputFile
+                currentOutputFile = outputFile
 
-            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-            audioManager?.let {
-                try {
-                    it.isMicrophoneMute = false
-                    val maxVol = it.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)
-                    it.setStreamVolume(AudioManager.STREAM_VOICE_CALL, maxVol, 0)
-                } catch (e: Exception) {
-                    Log.w("AudioRecordEngine", "AudioManager volume setup: ${e.message}")
-                }
-            }
-
-            val bufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat).coerceAtLeast(4096)
-
-            val sources = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                listOf(
-                    MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                    MediaRecorder.AudioSource.UNPROCESSED,
-                    MediaRecorder.AudioSource.MIC,
-                    MediaRecorder.AudioSource.DEFAULT
-                )
-            } else {
-                listOf(
-                    MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                    MediaRecorder.AudioSource.MIC,
-                    MediaRecorder.AudioSource.DEFAULT
-                )
-            }
-
-            var record: AudioRecord? = null
-            for (source in sources) {
-                try {
-                    val r = AudioRecord(source, sampleRate, channelConfig, audioFormat, bufferSize)
-                    if (r.state == AudioRecord.STATE_INITIALIZED) {
-                        record = r
-                        Log.d("AudioRecordEngine", "Initialized AudioRecord with source: $source at $sampleRate Hz")
-                        break
-                    } else {
-                        r.release()
+                val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                audioManager?.let {
+                    try {
+                        it.isMicrophoneMute = false
+                        val maxVol = it.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)
+                        it.setStreamVolume(AudioManager.STREAM_VOICE_CALL, maxVol, 0)
+                    } catch (e: Exception) {
+                        Log.w("AudioRecordEngine", "AudioManager volume setup: ${e.message}")
                     }
-                } catch (e: Exception) {
-                    Log.w("AudioRecordEngine", "Source $source failed: ${e.message}")
                 }
-            }
 
-            if (record == null) {
-                return Result.failure(IllegalStateException("Failed to initialize any AudioRecord source"))
-            }
+                val bufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat).coerceAtLeast(4096)
 
-            record.startRecording()
-            audioRecord = record
-            recording = true
+                val sources = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    listOf(
+                        MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                        MediaRecorder.AudioSource.UNPROCESSED,
+                        MediaRecorder.AudioSource.MIC,
+                        MediaRecorder.AudioSource.DEFAULT
+                    )
+                } else {
+                    listOf(
+                        MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                        MediaRecorder.AudioSource.MIC,
+                        MediaRecorder.AudioSource.DEFAULT
+                    )
+                }
 
-            recordingThread = Thread {
-                val data = ByteArray(bufferSize)
-                try {
-                    FileOutputStream(outputFile).use { out ->
-                        out.write(ByteArray(44)) // 44-byte WAV header placeholder
-
-                        while (recording && !Thread.currentThread().isInterrupted) {
-                            val read = record.read(data, 0, bufferSize)
-                            if (read > 0) {
-                                // 4.5x soft gain booster for clear incoming & outgoing speech
-                                for (i in 0 until read - 1 step 2) {
-                                    val low = data[i].toInt() and 0xFF
-                                    val high = data[i + 1].toInt()
-                                    val sample = (high shl 8) or low
-
-                                    var amplified = (sample * 4.5f).toInt()
-                                    if (amplified > 32767) amplified = 32767
-                                    if (amplified < -32768) amplified = -32768
-
-                                    data[i] = (amplified and 0xFF).toByte()
-                                    data[i + 1] = ((amplified shr 8) and 0xFF).toByte()
-                                }
-                                out.write(data, 0, read)
-                            }
+                var record: AudioRecord? = null
+                for (source in sources) {
+                    try {
+                        val r = AudioRecord(source, sampleRate, channelConfig, audioFormat, bufferSize)
+                        if (r.state == AudioRecord.STATE_INITIALIZED) {
+                            record = r
+                            Log.d("AudioRecordEngine", "Initialized AudioRecord with source: $source at $sampleRate Hz")
+                            break
+                        } else {
+                            r.release()
                         }
-                        out.flush()
+                    } catch (e: Exception) {
+                        Log.w("AudioRecordEngine", "Source $source failed: ${e.message}")
                     }
-                } catch (e: Exception) {
-                    Log.w("AudioRecordEngine", "Recording thread stream error", e)
                 }
-            }.apply {
-                isDaemon = true
-                name = "AudioRecordWorkerThread"
-                start()
-            }
 
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Log.e("AudioRecordEngine", "Failed to start AudioRecord", e)
-            recording = false
-            audioRecord?.release()
-            audioRecord = null
-            Result.failure(e)
+                if (record == null) {
+                    return@synchronized Result.failure(IllegalStateException("Failed to initialize any AudioRecord source"))
+                }
+
+                record.startRecording()
+                globalAudioRecord = record
+                isGloballyRecording = true
+
+                val thread = Thread {
+                    val data = ByteArray(bufferSize)
+                    try {
+                        FileOutputStream(outputFile).use { out ->
+                            out.write(ByteArray(44)) // 44-byte WAV header placeholder
+
+                            while (isGloballyRecording && !Thread.currentThread().isInterrupted) {
+                                val read = record.read(data, 0, bufferSize)
+                                if (read > 0) {
+                                    // 4.5x soft gain booster for clear incoming & outgoing speech
+                                    for (i in 0 until read - 1 step 2) {
+                                        val low = data[i].toInt() and 0xFF
+                                        val high = data[i + 1].toInt()
+                                        val sample = (high shl 8) or low
+
+                                        var amplified = (sample * 4.5f).toInt()
+                                        if (amplified > 32767) amplified = 32767
+                                        if (amplified < -32768) amplified = -32768
+
+                                        data[i] = (amplified and 0xFF).toByte()
+                                        data[i + 1] = ((amplified shr 8) and 0xFF).toByte()
+                                    }
+                                    out.write(data, 0, read)
+                                }
+                            }
+                            out.flush()
+                        }
+                    } catch (e: Exception) {
+                        Log.w("AudioRecordEngine", "Recording thread stream error", e)
+                    }
+                }.apply {
+                    isDaemon = true
+                    name = "AudioRecordWorkerThread"
+                    start()
+                }
+
+                globalRecordingThread = thread
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Log.e("AudioRecordEngine", "Failed to start AudioRecord", e)
+                forceStopAll()
+                Result.failure(e)
+            }
         }
     }
 
     override fun stopRecording(): Result<File> {
-        recording = false
-        return try {
+        return synchronized(globalLock) {
             try {
-                audioRecord?.stop()
+                forceStopAll()
+
+                currentOutputFile?.let {
+                    updateWavHeader(it)
+                    if (it.exists() && it.length() > 44) {
+                        Result.success(it)
+                    } else {
+                        Result.failure(IllegalStateException("Recording file is empty"))
+                    }
+                } ?: Result.failure(IllegalStateException("No output file"))
             } catch (e: Exception) {
-                Log.w("AudioRecordEngine", "Error stopping audioRecord", e)
+                Result.failure(e)
             }
-            audioRecord?.release()
-            audioRecord = null
-
-            recordingThread?.interrupt()
-            recordingThread?.join(1000)
-            recordingThread = null
-
-            currentOutputFile?.let {
-                updateWavHeader(it)
-                if (it.exists() && it.length() > 44) {
-                    Result.success(it)
-                } else {
-                    Result.failure(IllegalStateException("Recording file is empty"))
-                }
-            } ?: Result.failure(IllegalStateException("No output file"))
-        } catch (e: Exception) {
-            Result.failure(e)
-        } finally {
-            recording = false
-            audioRecord?.release()
-            audioRecord = null
-            recordingThread = null
         }
     }
 
-    override fun isRecording(): Boolean = recording
+    override fun isRecording(): Boolean = isGloballyRecording
 
     private fun updateWavHeader(file: File) {
         if (!file.exists() || file.length() < 44) return
@@ -265,8 +279,8 @@ object RecordingEngineFactory {
             val recordingsDir = File(context.filesDir, "recordings")
             if (recordingsDir.exists() && recordingsDir.isDirectory) {
                 recordingsDir.listFiles()?.forEach { file ->
-                    // Remove 0-byte or corrupt temporary files older than 1 hour
-                    if (file.isFile && (file.length() == 0L || System.currentTimeMillis() - file.lastModified() > 86400000)) {
+                    // Remove 0-byte or corrupt temporary files older than 3 minutes
+                    if (file.isFile && (file.length() == 0L || System.currentTimeMillis() - file.lastModified() > 180000)) {
                         file.delete()
                     }
                 }
