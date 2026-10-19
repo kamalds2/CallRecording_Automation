@@ -6,6 +6,7 @@ import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
+import android.media.audiofx.AutomaticGainControl
 import android.media.audiofx.NoiseSuppressor
 import android.os.Build
 import android.util.Log
@@ -29,7 +30,7 @@ class RobustAudioRecordEngine(
     private val context: Context
 ) : RecordingEngine {
 
-    override val name: String = "Robust AudioRecord (16kHz PCM WAV with Voice Booster)"
+    override val name: String = "Robust AudioRecord (16kHz PCM WAV with Balanced Voice Booster)"
     override val fileExtension: String = "wav"
 
     private var currentOutputFile: File? = null
@@ -53,6 +54,7 @@ class RobustAudioRecordEngine(
 
         private var globalAec: AcousticEchoCanceler? = null
         private var globalNs: NoiseSuppressor? = null
+        private var globalAgc: AutomaticGainControl? = null
 
         fun forceStopAll() {
             synchronized(globalLock) {
@@ -78,6 +80,11 @@ class RobustAudioRecordEngine(
                     globalNs?.release()
                 } catch (ignored: Exception) {}
                 globalNs = null
+
+                try {
+                    globalAgc?.release()
+                } catch (ignored: Exception) {}
+                globalAgc = null
 
                 globalRecordingThread?.interrupt()
                 globalRecordingThread = null
@@ -186,6 +193,18 @@ class RobustAudioRecordEngine(
                     }
                 }
 
+                // Enable hardware Automatic Gain Control (AGC) if supported to naturally raise remote caller voice
+                try {
+                    if (AutomaticGainControl.isAvailable()) {
+                        globalAgc = AutomaticGainControl.create(record.audioSessionId)?.apply {
+                            enabled = true
+                        }
+                        Log.d("AudioRecordEngine", "Explicitly enabled hardware AutomaticGainControl")
+                    }
+                } catch (e: Throwable) {
+                    Log.w("AudioRecordEngine", "Hardware AGC enable note: ${e.message}")
+                }
+
                 globalAudioRecord = record
                 isGloballyRecording = true
 
@@ -224,13 +243,13 @@ class RobustAudioRecordEngine(
     }
 
     /**
-     * Intelligent Dual-Band Voice Booster & Soft-Knee Dynamic Range Compressor
+     * Intelligent Speech Normalization & Dual-Band Dynamic Voice Booster
      *
-     * - Remote caller audio from earpiece (very low amplitude < 1500) gets up to 16x gain,
-     *   making the other party's voice punchy, loud, and crystal clear.
-     * - Local user's speech right into the bottom microphone (amplitude > 8000) gets
-     *   mild 1.3x gain to stay natural without distortion.
-     * - Soft-knee limiting ensures zero digital clipping or harshness.
+     * - The receiver/remote caller voice leaking from the earpiece has a very low amplitude (~50 to 800).
+     *   A dynamic 20x to 28x gain elevates it to 4,000–12,000, making the other party loud, punchy, and clear.
+     * - The local user speaking directly into the bottom microphone (amplitude > 8000) receives
+     *   unity/mild gain (1.0x to 1.8x) so your voice never overpowers the conversation or clips.
+     * - A subtle noise gate protects against amplifying empty background line hiss.
      */
     private fun applyDynamicVoiceBoost(data: ByteArray, read: Int) {
         for (i in 0 until read - 1 step 2) {
@@ -239,21 +258,27 @@ class RobustAudioRecordEngine(
             val sample = (high shl 8) or low
             val absVal = kotlin.math.abs(sample)
 
+            // Noise gate to prevent boosting background line hiss when neither party is speaking
+            if (absVal < 35) {
+                continue
+            }
+
             val gain = when {
-                absVal < 600 -> 16.0f     // Extremely faint remote voice: 16x boost
-                absVal < 1500 -> 12.0f    // Quiet remote voice: 12x boost
-                absVal < 4000 -> 6.0f     // Moderate sound: 6x boost
-                absVal < 8000 -> 3.0f     // Normal speech: 3x boost
-                else -> 1.3f              // Loud local voice: 1.3x boost
+                absVal < 350 -> 28.0f     // Very faint remote caller: 28x boost
+                absVal < 800 -> 22.0f     // Quiet remote caller: 22x boost
+                absVal < 2000 -> 14.0f    // Medium caller audio: 14x boost
+                absVal < 5000 -> 5.5f     // Moderate conversation: 5.5x boost
+                absVal < 10000 -> 2.0f    // Normal local speech: 2.0x boost
+                else -> 1.0f              // Loud local speech: unity gain (no clipping or distortion)
             }
 
             var amplified = (sample * gain).toInt()
 
-            // Soft-knee limiting / smooth saturation curve
-            if (amplified > 31500) {
-                amplified = 31500 + ((amplified - 31500) / 4).coerceAtMost(1267)
-            } else if (amplified < -31500) {
-                amplified = -31500 + ((amplified + 31500) / 4).coerceAtLeast(-1268)
+            // Smooth saturation curve to guarantee zero digital clipping / harsh cracking
+            if (amplified > 30000) {
+                amplified = 30000 + ((amplified - 30000) / 4).coerceAtMost(2500)
+            } else if (amplified < -30000) {
+                amplified = -30000 + ((amplified + 30000) / 4).coerceAtLeast(-2500)
             }
 
             data[i] = (amplified and 0xFF).toByte()
