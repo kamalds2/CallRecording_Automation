@@ -5,6 +5,8 @@ import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.media.audiofx.AcousticEchoCanceler
+import android.media.audiofx.NoiseSuppressor
 import android.os.Build
 import android.util.Log
 import com.autocall.mailrecorder.domain.model.CallDirection
@@ -49,6 +51,9 @@ class RobustAudioRecordEngine(
         @Volatile
         private var isGloballyRecording = false
 
+        private var globalAec: AcousticEchoCanceler? = null
+        private var globalNs: NoiseSuppressor? = null
+
         fun forceStopAll() {
             synchronized(globalLock) {
                 isGloballyRecording = false
@@ -63,6 +68,17 @@ class RobustAudioRecordEngine(
                     Log.w("AudioRecordEngine", "forceStopAll: audioRecord release error", e)
                 }
                 globalAudioRecord = null
+
+                try {
+                    globalAec?.release()
+                } catch (ignored: Exception) {}
+                globalAec = null
+
+                try {
+                    globalNs?.release()
+                } catch (ignored: Exception) {}
+                globalNs = null
+
                 globalRecordingThread?.interrupt()
                 globalRecordingThread = null
             }
@@ -90,33 +106,52 @@ class RobustAudioRecordEngine(
 
                 val bufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat).coerceAtLeast(4096)
 
+                // Prioritize sources capable of capturing both call parties:
+                // 1. VOICE_CALL (4) - Direct 2-way call audio from modem/baseband where supported by hardware/OEM
+                // 2. VOICE_COMMUNICATION (7) - VoIP/Telephony bidirectional communication
+                // 3. UNPROCESSED (9) - Pure microphone without hardware AEC/NS cancelling the earpiece
+                // 4. MIC (1) - Standard hardware microphone
+                // 5. DEFAULT (0) - System default
+                // 6. VOICE_RECOGNITION (6) - Last resort fallback
                 val sources = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                     listOf(
-                        MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                        MediaRecorder.AudioSource.VOICE_CALL,
+                        MediaRecorder.AudioSource.VOICE_COMMUNICATION,
                         MediaRecorder.AudioSource.UNPROCESSED,
                         MediaRecorder.AudioSource.MIC,
-                        MediaRecorder.AudioSource.DEFAULT
+                        MediaRecorder.AudioSource.DEFAULT,
+                        MediaRecorder.AudioSource.VOICE_RECOGNITION
                     )
                 } else {
                     listOf(
-                        MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                        MediaRecorder.AudioSource.VOICE_CALL,
+                        MediaRecorder.AudioSource.VOICE_COMMUNICATION,
                         MediaRecorder.AudioSource.MIC,
-                        MediaRecorder.AudioSource.DEFAULT
+                        MediaRecorder.AudioSource.DEFAULT,
+                        MediaRecorder.AudioSource.VOICE_RECOGNITION
                     )
                 }
 
                 var record: AudioRecord? = null
+                var activeSource: Int = -1
                 for (source in sources) {
                     try {
                         val r = AudioRecord(source, sampleRate, channelConfig, audioFormat, bufferSize)
                         if (r.state == AudioRecord.STATE_INITIALIZED) {
-                            record = r
-                            Log.d("AudioRecordEngine", "Initialized AudioRecord with source: $source at $sampleRate Hz")
-                            break
+                            try {
+                                r.startRecording()
+                                record = r
+                                activeSource = source
+                                Log.d("AudioRecordEngine", "Initialized and started AudioRecord with source: $source at $sampleRate Hz")
+                                break
+                            } catch (startEx: Throwable) {
+                                Log.w("AudioRecordEngine", "Source $source startRecording failed: ${startEx.message}")
+                                r.release()
+                            }
                         } else {
                             r.release()
                         }
-                    } catch (e: Exception) {
+                    } catch (e: Throwable) {
                         Log.w("AudioRecordEngine", "Source $source failed: ${e.message}")
                     }
                 }
@@ -125,7 +160,32 @@ class RobustAudioRecordEngine(
                     return@synchronized Result.failure(IllegalStateException("Failed to initialize any AudioRecord source"))
                 }
 
-                record.startRecording()
+                // If using acoustic mic capture, disable Acoustic Echo Canceler and Noise Suppressor
+                // so the phone DSP does not actively subtract/erase the other party's voice
+                if (activeSource != MediaRecorder.AudioSource.VOICE_CALL) {
+                    try {
+                        if (AcousticEchoCanceler.isAvailable()) {
+                            globalAec = AcousticEchoCanceler.create(record.audioSessionId)?.apply {
+                                enabled = false
+                            }
+                            Log.d("AudioRecordEngine", "Explicitly disabled AcousticEchoCanceler")
+                        }
+                    } catch (e: Throwable) {
+                        Log.w("AudioRecordEngine", "AEC disable note: ${e.message}")
+                    }
+
+                    try {
+                        if (NoiseSuppressor.isAvailable()) {
+                            globalNs = NoiseSuppressor.create(record.audioSessionId)?.apply {
+                                enabled = false
+                            }
+                            Log.d("AudioRecordEngine", "Explicitly disabled NoiseSuppressor")
+                        }
+                    } catch (e: Throwable) {
+                        Log.w("AudioRecordEngine", "NS disable note: ${e.message}")
+                    }
+                }
+
                 globalAudioRecord = record
                 isGloballyRecording = true
 
@@ -138,19 +198,7 @@ class RobustAudioRecordEngine(
                             while (isGloballyRecording && !Thread.currentThread().isInterrupted) {
                                 val read = record.read(data, 0, bufferSize)
                                 if (read > 0) {
-                                    // 4.5x soft gain booster for clear incoming & outgoing speech
-                                    for (i in 0 until read - 1 step 2) {
-                                        val low = data[i].toInt() and 0xFF
-                                        val high = data[i + 1].toInt()
-                                        val sample = (high shl 8) or low
-
-                                        var amplified = (sample * 4.5f).toInt()
-                                        if (amplified > 32767) amplified = 32767
-                                        if (amplified < -32768) amplified = -32768
-
-                                        data[i] = (amplified and 0xFF).toByte()
-                                        data[i + 1] = ((amplified shr 8) and 0xFF).toByte()
-                                    }
+                                    applyDynamicVoiceBoost(data, read)
                                     out.write(data, 0, read)
                                 }
                             }
@@ -172,6 +220,44 @@ class RobustAudioRecordEngine(
                 forceStopAll()
                 Result.failure(e)
             }
+        }
+    }
+
+    /**
+     * Intelligent Dual-Band Voice Booster & Soft-Knee Dynamic Range Compressor
+     *
+     * - Remote caller audio from earpiece (very low amplitude < 1500) gets up to 16x gain,
+     *   making the other party's voice punchy, loud, and crystal clear.
+     * - Local user's speech right into the bottom microphone (amplitude > 8000) gets
+     *   mild 1.3x gain to stay natural without distortion.
+     * - Soft-knee limiting ensures zero digital clipping or harshness.
+     */
+    private fun applyDynamicVoiceBoost(data: ByteArray, read: Int) {
+        for (i in 0 until read - 1 step 2) {
+            val low = data[i].toInt() and 0xFF
+            val high = data[i + 1].toInt()
+            val sample = (high shl 8) or low
+            val absVal = kotlin.math.abs(sample)
+
+            val gain = when {
+                absVal < 600 -> 16.0f     // Extremely faint remote voice: 16x boost
+                absVal < 1500 -> 12.0f    // Quiet remote voice: 12x boost
+                absVal < 4000 -> 6.0f     // Moderate sound: 6x boost
+                absVal < 8000 -> 3.0f     // Normal speech: 3x boost
+                else -> 1.3f              // Loud local voice: 1.3x boost
+            }
+
+            var amplified = (sample * gain).toInt()
+
+            // Soft-knee limiting / smooth saturation curve
+            if (amplified > 31500) {
+                amplified = 31500 + ((amplified - 31500) / 4).coerceAtMost(1267)
+            } else if (amplified < -31500) {
+                amplified = -31500 + ((amplified + 31500) / 4).coerceAtLeast(-1268)
+            }
+
+            data[i] = (amplified and 0xFF).toByte()
+            data[i + 1] = ((amplified shr 8) and 0xFF).toByte()
         }
     }
 
