@@ -98,11 +98,8 @@ class RobustAudioRecordEngine(
                     }
                 }
 
-                // Audio configs to try: Stereo first to capture top mic (near earpiece) + bottom mic, fallback to mono
-                val channelConfigs = listOf(
-                    AudioFormat.CHANNEL_IN_STEREO,
-                    AudioFormat.CHANNEL_IN_MONO
-                )
+                val channelConfig = AudioFormat.CHANNEL_IN_MONO
+                val bufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat).coerceAtLeast(4096)
 
                 val sources = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                     listOf(
@@ -120,30 +117,18 @@ class RobustAudioRecordEngine(
                 }
 
                 var record: AudioRecord? = null
-                var activeConfig = AudioFormat.CHANNEL_IN_MONO
-                var activeBufferSize = 4096
-
-                channelSearch@ for (config in channelConfigs) {
-                    val minBuf = AudioRecord.getMinBufferSize(sampleRate, config, audioFormat)
-                    if (minBuf <= 0) continue
-                    val bufSize = minBuf.coerceAtLeast(4096)
-
-                    for (source in sources) {
-                        try {
-                            val r = AudioRecord(source, sampleRate, config, audioFormat, bufSize)
-                            if (r.state == AudioRecord.STATE_INITIALIZED) {
-                                record = r
-                                activeConfig = config
-                                activeBufferSize = bufSize
-                                val configName = if (config == AudioFormat.CHANNEL_IN_STEREO) "STEREO (Dual-Mic)" else "MONO"
-                                Log.d("AudioRecordEngine", "Initialized AudioRecord with source: $source, config: $configName at $sampleRate Hz")
-                                break@channelSearch
-                            } else {
-                                r.release()
-                            }
-                        } catch (e: Exception) {
-                            Log.w("AudioRecordEngine", "Config $config source $source failed: ${e.message}")
+                for (source in sources) {
+                    try {
+                        val r = AudioRecord(source, sampleRate, channelConfig, audioFormat, bufferSize)
+                        if (r.state == AudioRecord.STATE_INITIALIZED) {
+                            record = r
+                            Log.d("AudioRecordEngine", "Initialized AudioRecord with source: $source, config: MONO at $sampleRate Hz")
+                            break
+                        } else {
+                            r.release()
                         }
+                    } catch (e: Exception) {
+                        Log.w("AudioRecordEngine", "Source $source failed: ${e.message}")
                     }
                 }
 
@@ -167,27 +152,20 @@ class RobustAudioRecordEngine(
                     Log.w("AudioRecordEngine", "Hardware AGC setup notice: ${e.message}")
                 }
 
-                val isStereo = (activeConfig == AudioFormat.CHANNEL_IN_STEREO)
                 val processor = DualVoiceAudioProcessor(sampleRate)
 
                 val thread = Thread {
-                    val inputBuffer = ByteArray(activeBufferSize)
-                    val monoBuffer = if (isStereo) ByteArray(activeBufferSize / 2) else ByteArray(0)
+                    val data = ByteArray(bufferSize)
 
                     try {
                         FileOutputStream(outputFile).use { out ->
                             out.write(ByteArray(44)) // 44-byte WAV header placeholder
 
                             while (isGloballyRecording && !Thread.currentThread().isInterrupted) {
-                                val read = record.read(inputBuffer, 0, activeBufferSize)
+                                val read = record.read(data, 0, bufferSize)
                                 if (read > 0) {
-                                    if (isStereo) {
-                                        val monoBytes = processor.processStereoToMono(inputBuffer, read, monoBuffer)
-                                        out.write(monoBuffer, 0, monoBytes)
-                                    } else {
-                                        processor.processMono(inputBuffer, read)
-                                        out.write(inputBuffer, 0, read)
-                                    }
+                                    processor.process(data, read)
+                                    out.write(data, 0, read)
                                 }
                             }
                             out.flush()
@@ -446,9 +424,9 @@ class DualVoiceAudioProcessor(
     }
 
     /**
-     * In-place mono processing
+     * In-place audio stream processing with Telecom Bandpass Filter + Dynamic Speech AGC
      */
-    fun processMono(data: ByteArray, read: Int) {
+    fun process(data: ByteArray, read: Int) {
         for (i in 0 until read - 1 step 2) {
             val low = data[i].toInt() and 0xFF
             val high = data[i + 1].toInt()
@@ -459,36 +437,6 @@ class DualVoiceAudioProcessor(
             data[i] = (outSample and 0xFF).toByte()
             data[i + 1] = ((outSample shr 8) and 0xFF).toByte()
         }
-    }
-
-    /**
-     * Stereo dual-mic downmix to mono with acoustic earpiece boost
-     * Channel 0 (Left): Bottom primary mic (mouth proximity)
-     * Channel 1 (Right): Top secondary mic (earpiece proximity)
-     * Returns the number of bytes written to monoOutput (read / 2)
-     */
-    fun processStereoToMono(input: ByteArray, read: Int, monoOutput: ByteArray): Int {
-        val numFrames = read / 4
-        for (f in 0 until numFrames) {
-            val inIdx = f * 4
-            val leftLow = input[inIdx].toInt() and 0xFF
-            val leftHigh = input[inIdx + 1].toInt()
-            val left = ((leftHigh shl 8) or leftLow).toShort().toFloat()
-
-            val rightLow = input[inIdx + 2].toInt() and 0xFF
-            val rightHigh = input[inIdx + 3].toInt()
-            val right = ((rightHigh shl 8) or rightLow).toShort().toFloat()
-
-            // Blend: give top mic (right) strong acoustic weighting to harvest remote earpiece audio
-            val mixed = (0.5f * left) + (0.8f * right)
-
-            val outSample = processSingleSample(mixed)
-
-            val outIdx = f * 2
-            monoOutput[outIdx] = (outSample and 0xFF).toByte()
-            monoOutput[outIdx + 1] = ((outSample shr 8) and 0xFF).toByte()
-        }
-        return numFrames * 2
     }
 
     fun reset() {
