@@ -6,8 +6,9 @@
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.READ_CALL_LOG" />
 
-    <!-- Audio Recording Permission -->
+    <!-- Audio Recording & Audio Routing Permissions -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
     <!-- Foreground Service Permissions (Standard Compliance) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />

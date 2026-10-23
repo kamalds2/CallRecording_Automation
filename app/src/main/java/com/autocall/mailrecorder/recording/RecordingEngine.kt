@@ -40,6 +40,9 @@ class RobustAudioRecordEngine(
         private val globalLock = Any()
 
         @Volatile
+        private var globalAppContext: Context? = null
+
+        @Volatile
         private var globalAudioRecord: AudioRecord? = null
 
         @Volatile
@@ -50,6 +53,12 @@ class RobustAudioRecordEngine(
 
         @Volatile
         private var hardwareAgc: android.media.audiofx.AutomaticGainControl? = null
+
+        @Volatile
+        private var globalAec: android.media.audiofx.AcousticEchoCanceler? = null
+
+        @Volatile
+        private var globalNs: android.media.audiofx.NoiseSuppressor? = null
 
         fun forceStopAll() {
             synchronized(globalLock) {
@@ -73,6 +82,29 @@ class RobustAudioRecordEngine(
                 }
                 hardwareAgc = null
 
+                try {
+                    globalAec?.release()
+                } catch (e: Exception) {
+                    Log.w("AudioRecordEngine", "forceStopAll: aec release error", e)
+                }
+                globalAec = null
+
+                try {
+                    globalNs?.release()
+                } catch (e: Exception) {
+                    Log.w("AudioRecordEngine", "forceStopAll: ns release error", e)
+                }
+                globalNs = null
+
+                // Restore speakerphone to prevent staying in speaker mode after call ends
+                try {
+                    val am = globalAppContext?.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                    am?.isSpeakerphoneOn = false
+                } catch (e: Exception) {
+                    Log.w("AudioRecordEngine", "forceStopAll: speakerphone restore error", e)
+                }
+                globalAppContext = null
+
                 globalRecordingThread?.interrupt()
                 globalRecordingThread = null
             }
@@ -86,6 +118,7 @@ class RobustAudioRecordEngine(
                 forceStopAll()
 
                 currentOutputFile = outputFile
+                globalAppContext = context.applicationContext
 
                 val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
                 audioManager?.let {
@@ -93,25 +126,32 @@ class RobustAudioRecordEngine(
                         it.isMicrophoneMute = false
                         val maxVol = it.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)
                         it.setStreamVolume(AudioManager.STREAM_VOICE_CALL, maxVol, 0)
+                        // In-Call Speaker Boost: Route in-call audio to speaker so the other party's voice
+                        // physically reaches the microphone with 10x-20x higher acoustic sound pressure
+                        it.isSpeakerphoneOn = true
+                        Log.d("AudioRecordEngine", "In-Call Speaker Boost activated (speakerphone=true, volume=$maxVol)")
                     } catch (e: Exception) {
-                        Log.w("AudioRecordEngine", "AudioManager volume setup: ${e.message}")
+                        Log.w("AudioRecordEngine", "AudioManager volume/speaker setup: ${e.message}")
                     }
                 }
 
                 val channelConfig = AudioFormat.CHANNEL_IN_MONO
                 val bufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat).coerceAtLeast(4096)
 
+                // Prioritize communication/unprocessed sources that don't aggressively cancel speaker output
                 val sources = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                     listOf(
-                        MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                        MediaRecorder.AudioSource.VOICE_COMMUNICATION,
                         MediaRecorder.AudioSource.UNPROCESSED,
                         MediaRecorder.AudioSource.MIC,
+                        MediaRecorder.AudioSource.VOICE_RECOGNITION,
                         MediaRecorder.AudioSource.DEFAULT
                     )
                 } else {
                     listOf(
-                        MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                        MediaRecorder.AudioSource.VOICE_COMMUNICATION,
                         MediaRecorder.AudioSource.MIC,
+                        MediaRecorder.AudioSource.VOICE_RECOGNITION,
                         MediaRecorder.AudioSource.DEFAULT
                     )
                 }
@@ -139,6 +179,30 @@ class RobustAudioRecordEngine(
                 record.startRecording()
                 globalAudioRecord = record
                 isGloballyRecording = true
+
+                // Explicitly DISABLE hardware Acoustic Echo Canceler and Noise Suppressor
+                // so the phone DSP DOES NOT actively subtract or erase the other party's voice!
+                try {
+                    if (android.media.audiofx.AcousticEchoCanceler.isAvailable()) {
+                        val aec = android.media.audiofx.AcousticEchoCanceler.create(record.audioSessionId)
+                        aec?.enabled = false
+                        globalAec = aec
+                        Log.d("AudioRecordEngine", "Explicitly disabled AcousticEchoCanceler on session ${record.audioSessionId}")
+                    }
+                } catch (e: Exception) {
+                    Log.w("AudioRecordEngine", "AEC disable notice: ${e.message}")
+                }
+
+                try {
+                    if (android.media.audiofx.NoiseSuppressor.isAvailable()) {
+                        val ns = android.media.audiofx.NoiseSuppressor.create(record.audioSessionId)
+                        ns?.enabled = false
+                        globalNs = ns
+                        Log.d("AudioRecordEngine", "Explicitly disabled NoiseSuppressor on session ${record.audioSessionId}")
+                    }
+                } catch (e: Exception) {
+                    Log.w("AudioRecordEngine", "NS disable notice: ${e.message}")
+                }
 
                 // Enable hardware Automatic Gain Control if device DSP supports it
                 try {
@@ -377,11 +441,11 @@ class DualVoiceAudioProcessor(
     // Broadcast standard speech target level (~ -4 dBFS peak)
     private val targetLevel = 20000.0f
 
-    // Maximum gain multiplier for faint remote caller audio
-    private val maxGain = 45.0f
+    // Maximum gain multiplier for faint remote caller audio (boosted to 75x)
+    private val maxGain = 75.0f
 
     // Speech detection threshold (captures faint caller acoustic leakage while ignoring room silence)
-    private val speechThreshold = 18.0f
+    private val speechThreshold = 14.0f
 
     private fun processSingleSample(rawSample: Float): Int {
         // 1. Telecom bandpass filter to isolate human vocal formants and eliminate rumble/buzz

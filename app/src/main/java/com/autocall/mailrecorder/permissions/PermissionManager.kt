@@ -63,7 +63,18 @@ object PermissionManager {
             )
         )
 
-        // 4. Notifications (Optional, non-blocking)
+        // 4. In-Call Audio Accessibility & Speaker Boost (Mandatory)
+        val a11yGranted = isAccessibilityServiceEnabled(context)
+        list.add(
+            PermissionState(
+                permissionName = "android.permission.BIND_ACCESSIBILITY_SERVICE",
+                isGranted = a11yGranted,
+                isRequired = true,
+                rationale = "Required for In-Call Speaker Boost & Audio Routing to record the other party clearly."
+            )
+        )
+
+        // 5. Notifications (Optional, non-blocking)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val notifGranted = ContextCompat.checkSelfPermission(
                 context,
@@ -83,8 +94,11 @@ object PermissionManager {
     }
 
     fun hasAllRequiredPermissions(context: Context): Boolean {
-        // Only evaluate mandatory permissions (Phone state, Call log, Audio record)
         return checkPermissionStates(context).filter { it.isRequired }.all { it.isGranted }
+    }
+
+    fun isAccessibilityServiceEnabled(context: Context): Boolean {
+        return com.autocall.mailrecorder.telecom.CallAccessibilityService.isAccessibilityServiceEnabled(context)
     }
 
     fun isIgnoringBatteryOptimizations(context: Context): Boolean {

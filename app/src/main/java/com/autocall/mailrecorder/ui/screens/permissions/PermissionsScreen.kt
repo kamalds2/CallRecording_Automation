@@ -6,6 +6,7 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -41,7 +42,21 @@ fun PermissionsScreen(
         permissionStates = PermissionManager.checkPermissionStates(context)
     }
 
-    val allGranted = permissionStates.all { it.isGranted }
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                permissionStates = PermissionManager.checkPermissionStates(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    val allGranted = permissionStates.filter { it.isRequired }.all { it.isGranted }
+    val isA11yMissing = permissionStates.any { it.permissionName == "android.permission.BIND_ACCESSIBILITY_SERVICE" && !it.isGranted }
 
     Scaffold(
         topBar = {
@@ -70,10 +85,21 @@ fun PermissionsScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(permissionStates) { state ->
+                    val isA11yItem = state.permissionName == "android.permission.BIND_ACCESSIBILITY_SERVICE"
                     PermissionCard(
-                        name = state.permissionName.substringAfterLast("."),
+                        name = if (isA11yItem) "In-Call Speaker Boost & Audio" else state.permissionName.substringAfterLast("."),
                         rationale = state.rationale,
-                        isGranted = state.isGranted
+                        isGranted = state.isGranted,
+                        onClick = if (isA11yItem && !state.isGranted) {
+                            {
+                                try {
+                                    val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    // ignore
+                                }
+                            }
+                        } else null
                     )
                 }
             }
@@ -81,34 +107,57 @@ fun PermissionsScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             if (!allGranted) {
-                Row(
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    OutlinedButton(
-                        onClick = {
-                            val intent = Intent(
-                                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                Uri.fromParts("package", context.packageName, null)
-                            )
-                            context.startActivity(intent)
-                        },
-                        modifier = Modifier.weight(1f).height(50.dp),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("App Settings")
+                    if (isA11yMissing) {
+                        Button(
+                            onClick = {
+                                try {
+                                    val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    // ignore
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().height(50.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                        ) {
+                            Text("Enable Audio Accessibility Service")
+                        }
                     }
 
-                    Button(
-                        onClick = {
-                            permissionLauncher.launch(PermissionManager.getRequiredPermissions().toTypedArray())
-                        },
-                        modifier = Modifier.weight(1f).height(50.dp),
-                        shape = RoundedCornerShape(8.dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Text("Grant Permissions")
+                        OutlinedButton(
+                            onClick = {
+                                val intent = Intent(
+                                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                    Uri.fromParts("package", context.packageName, null)
+                                )
+                                context.startActivity(intent)
+                            },
+                            modifier = Modifier.weight(1f).height(48.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Settings")
+                        }
+
+                        Button(
+                            onClick = {
+                                permissionLauncher.launch(PermissionManager.getRequiredPermissions().toTypedArray())
+                            },
+                            modifier = Modifier.weight(1f).height(48.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("System Perms")
+                        }
                     }
                 }
             } else {
@@ -134,12 +183,15 @@ fun PermissionsScreen(
 fun PermissionCard(
     name: String,
     rationale: String,
-    isGranted: Boolean
+    isGranted: Boolean,
+    onClick: (() -> Unit)? = null
 ) {
     Card(
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
     ) {
         Row(
             modifier = Modifier
